@@ -677,6 +677,350 @@ function RoomMap({ getAttendeesForSession, dark, isMobile }) {
   );
 }
 
+// ── Navigate View ────────────────────────────────────────────────────────────
+const MOSCONE = { lat: 37.7839, lng: -122.4034, name: 'Moscone Center', address: '747 Howard St, San Francisco, CA 94103' };
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const dLng = (lng2-lng1)*Math.PI/180;
+  const y = Math.sin(dLng)*Math.cos(lat2*Math.PI/180);
+  const x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dLng);
+  return (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+}
+
+function compassDir(deg) {
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg/45) % 8];
+}
+
+// Indoor wayfinding: known room positions on floor
+const FLOOR_ROOMS = {
+  l2:  ['Room 205','Room 206','Room 208','Room 209','Room 210','Room 211','Room 212','Room 213','Room 214','Room 215','Room 216'],
+  mz:  ['Room 151','Room 152','Room 158','Room 159','Room 160'],
+  bc:  ['Basecamp South Theater 1','Basecamp South Theater 2','Basecamp South Theater 3','Basecamp South Theater 4','Vertical Village Theater 1','Vertical Village Theater 2','Builders Hub Theater','Hands-on Labs 1','Hands-on Labs 2','Hands-on Labs 3','AI Pop Up'],
+};
+
+const FLOOR_LABELS = { l2: 'Level 2', mz: 'Upper Mezzanine', bc: 'Basecamp', north: 'Moscone North' };
+
+function getFloorForRoom(room) {
+  for (const [f, rooms] of Object.entries(FLOOR_ROOMS)) if (rooms.includes(room)) return f;
+  return null;
+}
+
+function getWalkingSteps(fromFloor, fromRoom, toRoom) {
+  const toFloor = getFloorForRoom(toRoom);
+  if (!toFloor) return [];
+  const steps = [];
+  if (!fromFloor || fromFloor === 'entrance') {
+    steps.push('🚪 Enter through the Howard St entrance');
+  }
+  if (toFloor === 'l2') {
+    if (fromFloor !== 'l2') steps.push('🛗 Take the escalator or elevator to Level 2 (Moscone South)');
+    const wing = ['Room 205','Room 206','Room 208','Room 209'].includes(toRoom) ? 'North Wing' :
+                 ['Room 214','Room 215','Room 216'].includes(toRoom) ? 'South Wing' : 'Central Wing';
+    steps.push(`🚶 Walk along the main corridor toward the ${wing}`);
+    steps.push(`📍 ${toRoom} will be on your ${toRoom.endsWith('5') || toRoom.endsWith('8') ? 'left' : 'right'} side`);
+  } else if (toFloor === 'mz') {
+    if (fromFloor !== 'mz') steps.push('🛗 Take the elevator to the Upper Mezzanine (Moscone South)');
+    steps.push('🚶 Walk along the mezzanine corridor');
+    steps.push(`📍 ${toRoom} will be numbered in sequence along the corridor`);
+  } else if (toFloor === 'bc') {
+    if (fromFloor !== 'bc') steps.push('⬇️ Head down to the Ground Floor / Basecamp');
+    const hall = toRoom.includes('Theater 1') || toRoom.includes('Theater 2') ? 'Hall A (South)' :
+                 toRoom.includes('Theater 3') || toRoom.includes('Theater 4') ? 'Hall B/C' :
+                 toRoom.includes('Builders') ? 'Hall D' :
+                 toRoom.includes('Hands-on') || toRoom.includes('AI Pop Up') ? 'Hall D/E' : 'Expo Floor';
+    steps.push(`🏕️ Walk through the Basecamp expo floor toward ${hall}`);
+    steps.push(`📍 Follow the signs for "${toRoom}"`);
+  }
+  return steps;
+}
+
+function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
+  const [gps, setGps] = useState(null);
+  const [gpsStatus, setGpsStatus] = useState('idle');
+  const [fromFloor, setFromFloor] = useState('entrance');
+  const [destRoom, setDestRoom] = useState('');
+  const [teamLocs, setTeamLocs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sf_team_locs') || '{}'); } catch { return {}; }
+  });
+  const [myLoc, setMyLoc] = useState(() => localStorage.getItem('sf_my_loc') || '');
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 10000); return () => clearInterval(t); }, []);
+
+  // GPS
+  const requestGps = () => {
+    if (!navigator.geolocation) { setGpsStatus('unsupported'); return; }
+    setGpsStatus('loading');
+    navigator.geolocation.getCurrentPosition(
+      pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }); setGpsStatus('ok'); },
+      () => setGpsStatus('error'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const distKm = gps ? haversineKm(gps.lat, gps.lng, MOSCONE.lat, MOSCONE.lng) : null;
+  const distStr = distKm == null ? null : distKm < 0.1 ? '< 100m — You\'re here!' : distKm < 1 ? `${Math.round(distKm*1000)}m away` : `${distKm.toFixed(1)} km away`;
+  const walkMin = distKm ? Math.max(1, Math.round(distKm / 0.083)) : null;
+  const bearing = gps ? bearingDeg(gps.lat, gps.lng, MOSCONE.lat, MOSCONE.lng) : null;
+
+  const mapsUrl = gps
+    ? `https://www.google.com/maps/dir/?api=1&origin=${gps.lat},${gps.lng}&destination=${MOSCONE.lat},${MOSCONE.lng}&travelmode=walking`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(MOSCONE.address)}`;
+  const appleMapsUrl = gps
+    ? `http://maps.apple.com/?saddr=${gps.lat},${gps.lng}&daddr=${MOSCONE.lat},${MOSCONE.lng}&dirflg=w`
+    : `http://maps.apple.com/?q=${encodeURIComponent(MOSCONE.address)}`;
+
+  // Next session
+  const myCodes = new Set(getSessionsForPerson(myName));
+  const mySessions = ALL_SESSIONS.filter(s => myCodes.has(s.code)).sort((a,b) => {
+    const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+    return di !== 0 ? di : getStartMin(a) - getStartMin(b);
+  });
+  const todayDayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getDay()];
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nextSession = mySessions.find(s => {
+    const dayMatch = s.day.startsWith(todayDayName);
+    return dayMatch && getStartMin(s) > nowMin;
+  }) || mySessions.find(s => DAYS.indexOf(s.day) > DAYS.indexOf(DAYS.find(d => d.startsWith(todayDayName)) || DAYS[0]));
+
+  const nextMinsUntil = nextSession ? Math.max(0, getStartMin(nextSession) - nowMin) : null;
+
+  // Team locations
+  const broadcastLocation = (room) => {
+    if (!myName) return;
+    const locs = { ...teamLocs, [myName]: { room, ts: Date.now() } };
+    setTeamLocs(locs);
+    setMyLoc(room);
+    localStorage.setItem('sf_team_locs', JSON.stringify(locs));
+    localStorage.setItem('sf_my_loc', room);
+  };
+
+  const clearLocation = () => {
+    const locs = { ...teamLocs };
+    delete locs[myName];
+    setTeamLocs(locs);
+    setMyLoc('');
+    localStorage.setItem('sf_team_locs', JSON.stringify(locs));
+    localStorage.removeItem('sf_my_loc');
+  };
+
+  const steps = destRoom ? getWalkingSteps(fromFloor, null, destRoom) : [];
+  const destFloor = destRoom ? getFloorForRoom(destRoom) : null;
+
+  const allRooms = Object.values(FLOOR_ROOMS).flat();
+  const Card = ({ children, style }) => <div style={{ ...S.card, padding: 16, marginBottom: 12, ...style }}>{children}</div>;
+  const SectionTitle = ({ icon, title }) => <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, display:'flex', gap:6, alignItems:'center'}}><span>{icon}</span>{title}</div>;
+
+  return (
+    <div>
+      <h2 style={S.h2}>🧭 Navigate — Summit Wayfinding</h2>
+
+      {/* Next Session */}
+      {myName && nextSession && (
+        <Card style={{ borderLeft: '4px solid var(--accent)', background: 'var(--accent-bg)' }}>
+          <SectionTitle icon="⏱️" title="Your Next Session" />
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>{nextSession.title}</div>
+          <div style={{ display:'flex', gap:12, fontSize:11, color:'var(--text2)', marginBottom:10, flexWrap:'wrap' }}>
+            <span>⏰ {nextSession.time}</span>
+            <span>📍 {nextSession.room_short}</span>
+            <span>📅 {nextSession.day}</span>
+            {nextMinsUntil !== null && nextMinsUntil <= 120 && (
+              <span style={{ fontWeight:700, color: nextMinsUntil < 15 ? '#dc2626' : nextMinsUntil < 30 ? '#d97706' : 'var(--accent)' }}>
+                {nextMinsUntil === 0 ? '🔴 Starting now!' : `🕐 In ${nextMinsUntil} min`}
+              </span>
+            )}
+          </div>
+          <button style={{ ...S.btn('primary'), fontSize: 12 }} onClick={() => setDestRoom(nextSession.room_short)}>
+            🧭 Navigate there →
+          </button>
+        </Card>
+      )}
+      {myName && !nextSession && (
+        <Card style={{ background: 'var(--surface2)' }}>
+          <p style={{ color:'var(--text2)', fontSize:13, margin:0 }}>No upcoming sessions today. Check your plan to add some!</p>
+        </Card>
+      )}
+
+      {/* Outdoor GPS */}
+      <Card>
+        <SectionTitle icon="🌍" title="Get to the Venue" />
+        <div style={{ display:'flex', gap:8, alignItems:'flex-start', marginBottom:12 }}>
+          {/* Compass */}
+          <div style={{ width:80, height:80, borderRadius:'50%', border:'2px solid var(--border)', flexShrink:0, position:'relative', background:'var(--surface2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            {bearing !== null ? (
+              <>
+                <div style={{ position:'absolute', inset:4, borderRadius:'50%', border:'1px dashed var(--border)' }}/>
+                <div style={{ width:4, height:32, background:'linear-gradient(var(--accent) 50%, var(--border) 50%)', borderRadius:2, transformOrigin:'50% 100%', transform:`rotate(${bearing}deg)`, position:'absolute', bottom:'50%', left:'calc(50% - 2px)' }}/>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--accent)', zIndex:1 }}/>
+                {['N','E','S','W'].map((d,i) => (
+                  <span key={d} style={{ position:'absolute', fontSize:8, fontWeight:700, color:'var(--text3)', ...[{top:4,left:'50%',transform:'translateX(-50%)'},{right:4,top:'50%',transform:'translateY(-50%)'},{bottom:4,left:'50%',transform:'translateX(-50%)'},{left:4,top:'50%',transform:'translateY(-50%)'}][i] }}>{d}</span>
+                ))}
+              </>
+            ) : (
+              <span style={{ fontSize:28 }}>🧭</span>
+            )}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--text)', marginBottom:4 }}>Moscone Center</div>
+            <div style={{ fontSize:11, color:'var(--text2)', marginBottom:8 }}>747 Howard St, San Francisco</div>
+            {gps && (
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--accent)', marginBottom:4 }}>
+                {distStr} · {compassDir(bearing)} direction
+              </div>
+            )}
+            {walkMin && distKm > 0.05 && (
+              <div style={{ fontSize:11, color:'var(--text2)' }}>🚶 ~{walkMin} min walk</div>
+            )}
+            {gpsStatus === 'loading' && <div style={{ fontSize:11, color:'var(--text2)' }}>📡 Getting your location…</div>}
+            {gpsStatus === 'error' && <div style={{ fontSize:11, color:'var(--error)' }}>⚠️ Location access denied</div>}
+            {gpsStatus === 'unsupported' && <div style={{ fontSize:11, color:'var(--error)' }}>⚠️ GPS not available on this device</div>}
+          </div>
+        </div>
+
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {gpsStatus !== 'ok' && (
+            <button style={S.btn('primary')} onClick={requestGps}>
+              📍 {gpsStatus === 'loading' ? 'Getting location…' : 'Use my location'}
+            </button>
+          )}
+          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{ ...S.btn('default'), textDecoration:'none', display:'inline-flex', alignItems:'center', gap:4 }}>
+            🗺️ Google Maps
+          </a>
+          <a href={appleMapsUrl} target="_blank" rel="noopener noreferrer" style={{ ...S.btn('default'), textDecoration:'none', display:'inline-flex', alignItems:'center', gap:4 }}>
+            🍎 Apple Maps
+          </a>
+        </div>
+      </Card>
+
+      {/* Indoor Navigation */}
+      <Card>
+        <SectionTitle icon="🏢" title="Indoor Navigation" />
+        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:8, marginBottom:14 }}>
+          <div>
+            <label style={{ fontSize:11, color:'var(--text2)', display:'block', marginBottom:4 }}>📌 I am currently at</label>
+            <select style={S.input} value={fromFloor} onChange={e => setFromFloor(e.target.value)}>
+              <option value="entrance">Howard St Entrance</option>
+              <option value="l2">Level 2</option>
+              <option value="mz">Upper Mezzanine</option>
+              <option value="bc">Basecamp / Ground Floor</option>
+              <option value="north">Moscone North</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize:11, color:'var(--text2)', display:'block', marginBottom:4 }}>🎯 I want to go to</label>
+            <select style={S.input} value={destRoom} onChange={e => setDestRoom(e.target.value)}>
+              <option value="">Select a room…</option>
+              {Object.entries(FLOOR_ROOMS).map(([f, rooms]) => (
+                <optgroup key={f} label={FLOOR_LABELS[f]}>
+                  {rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {steps.length > 0 && destRoom && (
+          <div>
+            {/* Visual floor indicator */}
+            <div style={{ display:'flex', gap:0, marginBottom:14, borderRadius:8, overflow:'hidden', border:'1px solid var(--border)' }}>
+              {[{id:'entrance',label:'Entrance',icon:'🚪'},{id:'bc',label:'Basecamp',icon:'🏕️'},{id:'l2',label:'Level 2',icon:'🏢'},{id:'mz',label:'Mezz.',icon:'🔼'},{id:'north',label:'North',icon:'🎤'}].map((f,i) => {
+                const isFrom = fromFloor === f.id;
+                const isDest = destFloor === f.id;
+                const isPath = (() => {
+                  const floors = ['entrance','bc','l2','mz','north'];
+                  const fi = floors.indexOf(fromFloor), di = floors.indexOf(destFloor || 'l2');
+                  const ci = floors.indexOf(f.id);
+                  return fi !== -1 && di !== -1 && ci >= Math.min(fi,di) && ci <= Math.max(fi,di);
+                })();
+                return (
+                  <div key={f.id} style={{ flex:1, textAlign:'center', padding:'8px 2px', background: isDest ? 'var(--accent)' : isFrom ? '#f0fdf4' : isPath ? 'var(--accent-bg)' : 'var(--surface2)', borderRight: i<4 ? '1px solid var(--border)' : 'none', transition:'all 0.2s' }}>
+                    <div style={{ fontSize:16 }}>{f.icon}</div>
+                    <div style={{ fontSize:9, fontWeight: isFrom||isDest ? 700 : 400, color: isDest ? '#fff' : isFrom ? '#15803d' : 'var(--text2)' }}>{f.label}</div>
+                    {isFrom && <div style={{ fontSize:7, color:'#15803d', fontWeight:700 }}>YOU</div>}
+                    {isDest && <div style={{ fontSize:7, color:'#fff', fontWeight:700 }}>DEST</div>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Steps */}
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {steps.map((step, i) => (
+                <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+                  <div style={{ width:22, height:22, borderRadius:'50%', background:'var(--accent)', color:'#fff', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>{i+1}</div>
+                  <div style={{ fontSize:13, color:'var(--text)', lineHeight:1.4, paddingTop:2 }}>{step}</div>
+                </div>
+              ))}
+              <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+                <div style={{ width:22, height:22, borderRadius:'50%', background:'#059669', color:'#fff', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>✓</div>
+                <div style={{ fontSize:13, fontWeight:600, color:'#059669', paddingTop:2 }}>You've arrived at {destRoom}!</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Team Radar */}
+      <Card>
+        <SectionTitle icon="👥" title="Team Radar — Where is everyone?" />
+        <p style={{ fontSize:11, color:'var(--text2)', marginBottom:10, marginTop:0 }}>Share your current room so teammates can find you.</p>
+
+        {/* Share my location */}
+        {myName && (
+          <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
+            <select style={{ ...S.input, flex:1, minWidth:180 }} value={myLoc} onChange={e => broadcastLocation(e.target.value)}>
+              <option value="">📍 I'm at…</option>
+              <option value="Lobby / Registration">🚪 Lobby / Registration</option>
+              <option value="Expo Floor">🏕️ Expo Floor / Basecamp</option>
+              {Object.entries(FLOOR_ROOMS).map(([f, rooms]) => (
+                <optgroup key={f} label={FLOOR_LABELS[f]}>
+                  {rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                </optgroup>
+              ))}
+            </select>
+            {myLoc && <button style={S.btn('default')} onClick={clearLocation}>✕</button>}
+          </div>
+        )}
+
+        {/* Live locations */}
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {Object.entries(teamLocs).filter(([, v]) => v.room).map(([name, { room, ts }]) => {
+            const minsAgo = Math.round((Date.now() - ts) / 60000);
+            const isStale = minsAgo > 30;
+            return (
+              <div key={name} style={{ display:'flex', gap:10, alignItems:'center', padding:'8px 10px', background:'var(--surface2)', borderRadius:8, opacity: isStale ? 0.5 : 1 }}>
+                <div style={{ width:30, height:30, borderRadius:'50%', background:'var(--accent)', color:'#fff', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{name.charAt(0)}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'var(--text)' }}>{name}</div>
+                  <div style={{ fontSize:11, color:'var(--text2)' }}>📍 {room}</div>
+                </div>
+                <div style={{ fontSize:10, color:'var(--text3)' }}>{minsAgo < 2 ? 'just now' : `${minsAgo}m ago`}</div>
+                {!isStale && (
+                  <button onClick={() => setDestRoom(room)} style={{ ...S.btn('default'), fontSize:10, padding:'3px 7px' }}>→ Nav</button>
+                )}
+              </div>
+            );
+          })}
+          {Object.keys(teamLocs).filter(n => teamLocs[n].room).length === 0 && (
+            <p style={{ color:'var(--text3)', fontSize:12, margin:0 }}>No teammates have shared their location yet.</p>
+          )}
+        </div>
+      </Card>
+
+      <div style={{ fontSize:10, color:'var(--text3)', padding:'4px 0', textAlign:'center' }}>
+        💡 Indoor positioning uses manual selection — true blue-dot indoor GPS requires venue beacons not available at Moscone.
+      </div>
+    </div>
+  );
+}
+
 // ── Guide Modal ───────────────────────────────────────────────────────────────
 const GUIDE_STEPS = [
   { icon: '❄️', title: 'Welcome to Summit 26 Tracker', body: 'Your team\'s hub for Snowflake Summit 2026 in San Francisco, Jun 1–4. Browse 528 sessions, build your agenda, and see what your teammates are attending — all in one place.' },
@@ -726,6 +1070,7 @@ const NAV_ITEMS = [
   { id: 'myplan',   label: 'My Plan',  icon: '📅' },
   { id: 'team',     label: 'Team',     icon: '👥' },
   { id: 'map',      label: 'Map',      icon: '🗺️' },
+  { id: 'navigate', label: 'Navigate', icon: '🧭' },
 ];
 
 export default function App() {
@@ -810,6 +1155,7 @@ export default function App() {
             {view === 'myplan' && <MyPlanView name={myName} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} onRegister={register} onUnregister={unregister} isMobile={isMobile} />}
             {view === 'team' && <TeamView knownNames={knownNames} registrations={registrations} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} isMobile={isMobile} />}
             {view === 'map' && <RoomMap getAttendeesForSession={getAttendeesForSession} dark={dark} isMobile={isMobile} />}
+            {view === 'navigate' && <NavigateView myName={myName} getSessionsForPerson={getSessionsForPerson} knownNames={knownNames} isMobile={isMobile} />}
           </>
         }
       </div>
