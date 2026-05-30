@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ALL_SESSIONS } from './sessions';
 import { useAttendees } from './useAttendees';
 import { isSupabaseReady } from './supabase';
@@ -23,8 +23,8 @@ const COLORS = {
   'User Group': '#4a1d96',
 };
 
-function parseTime(timeStr) {
-  const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+function parseTime(t) {
+  const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!m) return 0;
   let h = parseInt(m[1]);
   const min = parseInt(m[2]);
@@ -32,27 +32,30 @@ function parseTime(timeStr) {
   if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
   return h * 60 + min;
 }
-
 function getStartMin(s) { return parseTime(s.time.split(' - ')[0]); }
 function getEndMin(s) { return parseTime((s.time.split(' - ')[1] || '').replace(' PDT', '')); }
 function overlaps(a, b) { return getStartMin(a) < getEndMin(b) && getEndMin(a) > getStartMin(b); }
 
+// All styles use CSS custom properties — theme switch happens via .dark class on <html>
 const S = {
-  app: { minHeight: '100vh', background: '#f8fafc', color: '#0f172a', fontFamily: 'system-ui,sans-serif' },
-  gate: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#eff6ff 0%,#f0f9ff 100%)' },
-  nav: { background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
-  navBtn: (active) => ({ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: active ? '#1d4ed8' : '#f1f5f9', color: active ? '#fff' : '#475569' }),
+  app: { minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'system-ui,sans-serif' },
+  nav: { background: 'var(--nav-bg)', borderBottom: '1px solid var(--border)', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 100, boxShadow: 'var(--nav-shadow)' },
+  navBtn: (active) => ({ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: active ? '#1d4ed8' : 'var(--navbtn-bg)', color: active ? '#fff' : 'var(--navbtn-text)' }),
   content: { padding: '16px 20px', maxWidth: 1400, margin: '0 auto' },
-  card: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px', marginBottom: 8, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' },
-  tag: (track) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: (COLORS[track] || '#64748b') + '18', color: COLORS[track] || '#64748b', border: `1px solid ${(COLORS[track] || '#64748b')}33` }),
-  btn: (v = 'primary') => ({ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: v === 'primary' ? '#1d4ed8' : v === 'danger' ? '#fee2e2' : v === 'success' ? '#dcfce7' : '#f1f5f9', color: v === 'primary' ? '#fff' : v === 'danger' ? '#dc2626' : v === 'success' ? '#16a34a' : '#475569' }),
-  input: { background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 6, padding: '8px 12px', color: '#0f172a', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' },
-  pill: { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999, fontSize: 11, background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#475569' },
-  h2: { fontSize: 18, fontWeight: 700, color: '#0f172a', marginBottom: 12, borderBottom: '1px solid #e2e8f0', paddingBottom: 8 },
-  h3: { fontSize: 14, fontWeight: 700, color: '#1d4ed8', marginBottom: 8 },
+  card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', marginBottom: 8, boxShadow: 'var(--card-shadow)' },
+  tag: (track) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: (COLORS[track] || '#374151') + '20', color: COLORS[track] || '#374151', border: `1px solid ${(COLORS[track] || '#374151')}40` }),
+  btn: (v = 'primary') => ({
+    padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+    background: v === 'primary' ? '#1d4ed8' : v === 'danger' ? 'var(--busy-pill-bg)' : v === 'success' ? 'var(--free-pill-bg)' : 'var(--navbtn-bg)',
+    color: v === 'primary' ? '#fff' : v === 'danger' ? 'var(--busy-pill-text)' : v === 'success' ? 'var(--free-pill-text)' : 'var(--navbtn-text)',
+  }),
+  input: { background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 6, padding: '8px 12px', color: 'var(--text)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' },
+  pill: { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999, fontSize: 11, background: 'var(--pill-bg)', border: '1px solid var(--pill-border)', color: 'var(--pill-text)' },
+  h2: { fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 8 },
+  h3: { fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 },
 };
 
-// ── Gate ─────────────────────────────────────────────────────────────────────
+// ── Gate ──────────────────────────────────────────────────────────────────────
 function GateScreen({ onUnlock }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -61,24 +64,20 @@ function GateScreen({ onUnlock }) {
     else setError('Invalid access code. Try again.');
   };
   return (
-    <div style={S.gate}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
       <div style={{ textAlign: 'center', maxWidth: 380, padding: 32 }}>
         <div style={{ fontSize: 56, marginBottom: 12 }}>❄️</div>
-        <h1 style={{ color: '#0f172a', fontSize: 26, fontWeight: 800, marginBottom: 4 }}>Snowflake Summit 26</h1>
-        <p style={{ color: '#64748b', marginBottom: 32, fontSize: 14 }}>Ritchie Bros Team Tracker · San Francisco, Jun 1–4</p>
+        <h1 style={{ color: 'var(--gate-title)', fontSize: 26, fontWeight: 800, marginBottom: 4 }}>Snowflake Summit 26</h1>
+        <p style={{ color: 'var(--text2)', marginBottom: 32, fontSize: 14 }}>Ritchie Bros Team Tracker · San Francisco, Jun 1–4</p>
         <input
           style={{ ...S.input, marginBottom: 12, textAlign: 'center', letterSpacing: 3, fontSize: 15 }}
-          type="password"
-          placeholder="Access code"
-          value={code}
+          type="password" placeholder="Access code" value={code}
           onChange={e => { setCode(e.target.value); setError(''); }}
           onKeyDown={e => e.key === 'Enter' && check()}
           autoFocus
         />
-        {error && <p style={{ color: '#f87171', fontSize: 12, marginBottom: 8 }}>{error}</p>}
-        <button style={{ ...S.btn('primary'), width: '100%', padding: '10px 0', fontSize: 14 }} onClick={check}>
-          Enter →
-        </button>
+        {error && <p style={{ color: 'var(--error)', fontSize: 12, marginBottom: 8 }}>{error}</p>}
+        <button style={{ ...S.btn('primary'), width: '100%', padding: '10px 0', fontSize: 14 }} onClick={check}>Enter →</button>
       </div>
     </div>
   );
@@ -88,15 +87,15 @@ function GateScreen({ onUnlock }) {
 function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
   const isRegistered = myName && attendees.includes(myName);
   return (
-    <div style={{ ...S.card, borderLeft: `3px solid ${COLORS[session.track] || '#1e4a7f'}` }}>
+    <div style={{ ...S.card, borderLeft: `3px solid ${COLORS[session.track] || '#64748b'}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>{session.code}</span>
+            <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'monospace' }}>{session.code}</span>
             <span style={S.tag(session.track)}>{session.track}</span>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
-          <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
+          <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <span>⏰ {session.time}</span>
             {session.room_short && <span>📍 {session.room_short}</span>}
           </div>
@@ -110,7 +109,7 @@ function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
       {attendees.length > 0 && (
         <div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {attendees.map(n => (
-            <span key={n} style={{ ...S.pill, background: n === myName ? '#dbeafe' : '#f1f5f9', borderColor: n === myName ? '#3b82f6' : '#cbd5e1', color: n === myName ? '#1d4ed8' : '#475569' }}>{n}</span>
+            <span key={n} style={{ ...S.pill, background: n === myName ? 'var(--me-bg)' : 'var(--pill-bg)', borderColor: n === myName ? 'var(--me-border)' : 'var(--pill-border)', color: n === myName ? 'var(--me-text)' : 'var(--pill-text)' }}>{n}</span>
           ))}
         </div>
       )}
@@ -131,21 +130,19 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
   }, [myName, registrations]);
 
   const filtered = useMemo(() =>
-    ALL_SESSIONS
-      .filter(s => {
-        if (filterDay && s.day !== filterDay) return false;
-        if (filterTrack && s.track !== filterTrack) return false;
-        if (search) {
-          const q = search.toLowerCase();
-          if (!s.title.toLowerCase().includes(q) && !s.code.toLowerCase().includes(q) && !s.room_short?.toLowerCase().includes(q)) return false;
-        }
-        if (showMine && !mySessionCodes.has(s.code)) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
-        return di !== 0 ? di : getStartMin(a) - getStartMin(b);
-      }),
+    ALL_SESSIONS.filter(s => {
+      if (filterDay && s.day !== filterDay) return false;
+      if (filterTrack && s.track !== filterTrack) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!s.title.toLowerCase().includes(q) && !s.code.toLowerCase().includes(q) && !s.room_short?.toLowerCase().includes(q)) return false;
+      }
+      if (showMine && !mySessionCodes.has(s.code)) return false;
+      return true;
+    }).sort((a, b) => {
+      const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+      return di !== 0 ? di : getStartMin(a) - getStartMin(b);
+    }),
   [filterDay, filterTrack, search, showMine, mySessionCodes]);
 
   const grouped = useMemo(() => {
@@ -160,7 +157,7 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
 
   return (
     <div>
-      <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ background: 'var(--filter-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <input style={{ ...S.input, width: 220 }} placeholder="Search sessions, rooms…" value={search} onChange={e => setSearch(e.target.value)} />
         <select style={{ ...S.input, width: 'auto' }} value={filterDay} onChange={e => setFilterDay(e.target.value)}>
           <option value="">All Days</option>
@@ -175,7 +172,7 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
             {showMine ? '★ My Sessions' : '☆ My Sessions'}
           </button>
         )}
-        <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>{filtered.length} sessions</span>
+        <span style={{ fontSize: 11, color: 'var(--text2)', marginLeft: 'auto' }}>{filtered.length} sessions</span>
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -188,20 +185,14 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
 
       {grouped.map(({ label, day, sessions }) => (
         <div key={`${day}${label}`} style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700, fontFamily: 'monospace', marginBottom: 6, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '3px 10px', borderRadius: 4 }}>⏰ {label}</span>
-            {filterDay === '' && <span style={{ color: '#64748b' }}>{day}</span>}
-            <span style={{ color: '#94a3b8', fontSize: 10 }}>{sessions.length} sessions</span>
+          <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', marginBottom: 6, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ background: 'var(--time-bg)', border: '1px solid var(--time-border)', color: 'var(--time-text)', padding: '3px 10px', borderRadius: 4 }}>⏰ {label}</span>
+            {filterDay === '' && <span style={{ color: 'var(--text2)' }}>{day}</span>}
+            <span style={{ color: 'var(--text3)', fontSize: 10 }}>{sessions.length} sessions</span>
           </div>
           {sessions.map(s => (
-            <SessionCard
-              key={s.code}
-              session={s}
-              myName={myName}
-              attendees={getAttendeesForSession(s.code)}
-              onRegister={(code) => onRegister(myName, code)}
-              onUnregister={(code) => onUnregister(myName, code)}
-            />
+            <SessionCard key={s.code} session={s} myName={myName} attendees={getAttendeesForSession(s.code)}
+              onRegister={(code) => onRegister(myName, code)} onUnregister={(code) => onUnregister(myName, code)} />
           ))}
         </div>
       ))}
@@ -218,23 +209,18 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
   const byDay = useMemo(() => {
     const g = {};
     for (const d of DAYS) {
-      g[d] = ALL_SESSIONS
-        .filter(s => myCodes.has(s.code) && s.day === d)
-        .sort((a, b) => getStartMin(a) - getStartMin(b));
+      g[d] = ALL_SESSIONS.filter(s => myCodes.has(s.code) && s.day === d).sort((a, b) => getStartMin(a) - getStartMin(b));
     }
     return g;
   }, [myCodes]);
 
   const dayMine = byDay[selectedDay] || [];
-  const dayAll = useMemo(() =>
-    ALL_SESSIONS.filter(s => s.day === selectedDay).sort((a, b) => getStartMin(a) - getStartMin(b)),
-  [selectedDay]);
+  const dayAll = useMemo(() => ALL_SESSIONS.filter(s => s.day === selectedDay).sort((a, b) => getStartMin(a) - getStartMin(b)), [selectedDay]);
 
   const freeSlots = useMemo(() => {
     const slots = {};
     for (const s of dayAll) {
-      if (myCodes.has(s.code)) continue;
-      if (dayMine.some(m => overlaps(s, m))) continue;
+      if (myCodes.has(s.code) || dayMine.some(m => overlaps(s, m))) continue;
       const key = s.time.split(' - ')[0];
       slots[key] = (slots[key] || 0) + 1;
     }
@@ -242,57 +228,38 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
   }, [dayAll, dayMine, myCodes]);
 
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  const remaining = useMemo(() =>
-    dayAll.filter(s => !myCodes.has(s.code) && getStartMin(s) >= nowMin),
-  [dayAll, myCodes, nowMin]);
+  const remaining = useMemo(() => dayAll.filter(s => !myCodes.has(s.code) && getStartMin(s) >= nowMin), [dayAll, myCodes, nowMin]);
 
-  if (!name) {
-    return (
-      <div style={{ color: '#475569', padding: 60, textAlign: 'center', fontSize: 14 }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>👤</div>
-        Set your name in the top bar to see your personal plan.
-      </div>
-    );
-  }
+  if (!name) return (
+    <div style={{ color: 'var(--text2)', padding: 60, textAlign: 'center', fontSize: 14 }}>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>👤</div>
+      Set your name in the top bar to see your personal plan.
+    </div>
+  );
 
   return (
     <div>
       <h2 style={S.h2}>📅 {name}'s Plan — {Object.values(byDay).flat().length} sessions total</h2>
-
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
-        {DAYS.map(d => (
-          <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>
-            {d} ({byDay[d]?.length || 0})
-          </button>
-        ))}
+        {DAYS.map(d => <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>{d} ({byDay[d]?.length || 0})</button>)}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20 }}>
         <div>
           <h3 style={S.h3}>✅ Registered ({dayMine.length})</h3>
           {dayMine.length === 0
-            ? <p style={{ color: '#475569', fontSize: 13 }}>Nothing registered yet — browse the schedule!</p>
-            : dayMine.map(s => (
-              <SessionCard
-                key={s.code}
-                session={s}
-                myName={name}
-                attendees={getAttendeesForSession(s.code)}
-                onRegister={() => {}}
-                onUnregister={(code) => onUnregister(name, code)}
-              />
-            ))
+            ? <p style={{ color: 'var(--text2)', fontSize: 13 }}>Nothing registered yet — browse the schedule!</p>
+            : dayMine.map(s => <SessionCard key={s.code} session={s} myName={name} attendees={getAttendeesForSession(s.code)} onRegister={() => {}} onUnregister={(code) => onUnregister(name, code)} />)
           }
         </div>
-
         <div>
           <h3 style={S.h3}>🕐 Your Free Time Slots</h3>
           {Object.keys(freeSlots).length === 0 && dayMine.length > 0
-            ? <p style={{ color: '#16a34a', fontSize: 12 }}>Fully booked — no open slots!</p>
+            ? <p style={{ color: 'var(--free-label)', fontSize: 12 }}>Fully booked!</p>
             : Object.entries(freeSlots).map(([time, count]) => (
               <div key={time} style={{ ...S.card, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span style={{ color: '#1d4ed8' }}>⏰ {time}</span>
-                <span style={{ color: '#64748b' }}>{count} sessions available</span>
+                <span style={{ color: 'var(--accent)' }}>⏰ {time}</span>
+                <span style={{ color: 'var(--text2)' }}>{count} sessions available</span>
               </div>
             ))
           }
@@ -300,12 +267,12 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
           <h3 style={{ ...S.h3, marginTop: 20 }}>🔜 Still Available Today ({remaining.length})</h3>
           {remaining.slice(0, 6).map(s => (
             <div key={s.code} style={{ ...S.card, fontSize: 12 }}>
-              <div style={{ color: '#0f172a', marginBottom: 2, fontWeight: 600 }}>{s.title}</div>
-              <div style={{ color: '#64748b', marginBottom: 6 }}>{s.time} · {s.room_short}</div>
+              <div style={{ color: 'var(--text)', marginBottom: 2, fontWeight: 600 }}>{s.title}</div>
+              <div style={{ color: 'var(--text2)', marginBottom: 6 }}>{s.time} · {s.room_short}</div>
               <button style={{ ...S.btn('success'), fontSize: 11 }} onClick={() => onRegister(name, s.code)}>+ Add to plan</button>
             </div>
           ))}
-          {remaining.length > 6 && <p style={{ color: '#475569', fontSize: 11 }}>+{remaining.length - 6} more…</p>}
+          {remaining.length > 6 && <p style={{ color: 'var(--text3)', fontSize: 11 }}>+{remaining.length - 6} more…</p>}
         </div>
       </div>
     </div>
@@ -313,7 +280,7 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
 }
 
 // ── Team View ─────────────────────────────────────────────────────────────────
-function TeamView({ knownNames, getSessionsForPerson, getAttendeesForSession }) {
+function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendeesForSession }) {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [selectedDay, setSelectedDay] = useState(DAYS[0]);
 
@@ -327,16 +294,15 @@ function TeamView({ knownNames, getSessionsForPerson, getAttendeesForSession }) 
     }).sort((a, b) => b.total - a.total),
   [knownNames, getSessionsForPerson]);
 
-  // Team free time: slots where no one has a session
   const teamFreeTime = useMemo(() => {
     if (knownNames.length === 0) return [];
     const dayAll = ALL_SESSIONS.filter(s => s.day === selectedDay).sort((a, b) => getStartMin(a) - getStartMin(b));
     const uniqueTimes = [...new Set(dayAll.map(s => s.time.split(' - ')[0]))];
     return uniqueTimes.map(t => {
-      const atThisTime = dayAll.filter(s => s.time.split(' - ')[0] === t);
+      const atTime = dayAll.filter(s => s.time.split(' - ')[0] === t);
       const busy = knownNames.filter(name => {
         const codes = new Set(getSessionsForPerson(name));
-        return atThisTime.some(s => codes.has(s.code));
+        return atTime.some(s => codes.has(s.code));
       });
       return { time: t, busy, free: knownNames.filter(n => !busy.includes(n)) };
     });
@@ -345,35 +311,27 @@ function TeamView({ knownNames, getSessionsForPerson, getAttendeesForSession }) 
   const personSessions = useMemo(() => {
     if (!selectedPerson) return [];
     const codes = new Set(getSessionsForPerson(selectedPerson));
-    return ALL_SESSIONS
-      .filter(s => codes.has(s.code) && s.day === selectedDay)
-      .sort((a, b) => getStartMin(a) - getStartMin(b));
+    return ALL_SESSIONS.filter(s => codes.has(s.code) && s.day === selectedDay).sort((a, b) => getStartMin(a) - getStartMin(b));
   }, [selectedPerson, selectedDay, getSessionsForPerson]);
 
   return (
     <div>
       <h2 style={S.h2}>👥 Team Overview</h2>
-
-      {knownNames.length === 0 && (
-        <p style={{ color: '#475569', fontSize: 14, padding: 20 }}>No team members yet — set your name in the top bar and join some sessions!</p>
-      )}
+      {knownNames.length === 0 && <p style={{ color: 'var(--text2)', fontSize: 14, padding: 20 }}>No team members yet — set your name in the top bar and join some sessions!</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 8, marginBottom: 24 }}>
         {stats.map(({ name, total, byDay }) => (
-          <div
-            key={name}
-            style={{ ...S.card, cursor: 'pointer', border: selectedPerson === name ? '1px solid #3b82f6' : S.card.border }}
-            onClick={() => setSelectedPerson(name === selectedPerson ? null : name)}
-          >
+          <div key={name} style={{ ...S.card, cursor: 'pointer', border: selectedPerson === name ? '1px solid #3b82f6' : S.card.border }}
+            onClick={() => setSelectedPerson(name === selectedPerson ? null : name)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{name}</span>
-              <span style={{ fontSize: 22, fontWeight: 800, color: '#1d4ed8' }}>{total}</span>
+              <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 14 }}>{name}</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>{total}</span>
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
               {DAYS.map(d => (
-                <div key={d} style={{ flex: 1, textAlign: 'center', background: '#f8fafc', borderRadius: 4, padding: '4px 2px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: byDay[d] > 0 ? '#1d4ed8' : '#cbd5e1' }}>{byDay[d]}</div>
-                  <div style={{ fontSize: 8, color: '#94a3b8' }}>{d.split(',')[0]}</div>
+                <div key={d} style={{ flex: 1, textAlign: 'center', background: 'var(--stat-bg)', borderRadius: 4, padding: '4px 2px' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: byDay[d] > 0 ? 'var(--stat-active)' : 'var(--stat-inactive)' }}>{byDay[d]}</div>
+                  <div style={{ fontSize: 8, color: 'var(--stat-label)' }}>{d.split(',')[0]}</div>
                 </div>
               ))}
             </div>
@@ -388,14 +346,12 @@ function TeamView({ knownNames, getSessionsForPerson, getAttendeesForSession }) 
             {DAYS.map(d => <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>{d}</button>)}
           </div>
           {personSessions.length === 0
-            ? <p style={{ color: '#475569', fontSize: 13 }}>No sessions for this day.</p>
+            ? <p style={{ color: 'var(--text2)', fontSize: 13 }}>No sessions for this day.</p>
             : personSessions.map(s => (
               <div key={s.code} style={S.card}>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                  <span style={S.tag(s.track)}>{s.track}</span>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>{s.title}</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>⏰ {s.time} · 📍 {s.room_short}</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}><span style={S.tag(s.track)}>{s.track}</span></div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{s.title}</div>
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6 }}>⏰ {s.time} · 📍 {s.room_short}</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {getAttendeesForSession(s.code).map(n => <span key={n} style={S.pill}>{n}</span>)}
                 </div>
@@ -409,35 +365,36 @@ function TeamView({ knownNames, getSessionsForPerson, getAttendeesForSession }) 
       <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
         {DAYS.map(d => <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>{d}</button>)}
       </div>
-      {knownNames.length === 0 ? (
-        <p style={{ color: '#475569', fontSize: 13 }}>Add team members first.</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 6 }}>
-          {teamFreeTime.map(({ time, busy, free }) => (
-            <div key={time} style={{ ...S.card, background: free.length === knownNames.length ? '#f0fdf4' : '#ffffff', borderColor: free.length === knownNames.length ? '#86efac' : '#e2e8f0' }}>
-              <div style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700, marginBottom: 6 }}>⏰ {time}</div>
-              {free.length > 0 && (
-                <div style={{ marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: '#16a34a' }}>Free: </span>
-                  {free.map(n => <span key={n} style={{ ...S.pill, background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a', marginRight: 3 }}>{n}</span>)}
-                </div>
-              )}
-              {busy.length > 0 && (
-                <div>
-                  <span style={{ fontSize: 10, color: '#dc2626' }}>Busy: </span>
-                  {busy.map(n => <span key={n} style={{ ...S.pill, background: '#fef2f2', borderColor: '#fca5a5', color: '#dc2626', marginRight: 3 }}>{n}</span>)}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {knownNames.length === 0
+        ? <p style={{ color: 'var(--text2)', fontSize: 13 }}>Add team members first.</p>
+        : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 6 }}>
+            {teamFreeTime.map(({ time, busy, free }) => (
+              <div key={time} style={{ ...S.card, background: free.length === knownNames.length ? 'var(--free-card)' : 'var(--surface)', borderColor: free.length === knownNames.length ? 'var(--free-card-border)' : 'var(--border)' }}>
+                <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, marginBottom: 6 }}>⏰ {time}</div>
+                {free.length > 0 && (
+                  <div style={{ marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: 'var(--free-label)' }}>Free: </span>
+                    {free.map(n => <span key={n} style={{ ...S.pill, background: 'var(--free-pill-bg)', borderColor: 'var(--free-pill-border)', color: 'var(--free-pill-text)', marginRight: 3 }}>{n}</span>)}
+                  </div>
+                )}
+                {busy.length > 0 && (
+                  <div>
+                    <span style={{ fontSize: 10, color: 'var(--busy-label)' }}>Busy: </span>
+                    {busy.map(n => <span key={n} style={{ ...S.pill, background: 'var(--busy-pill-bg)', borderColor: 'var(--busy-pill-border)', color: 'var(--busy-pill-text)', marginRight: 3 }}>{n}</span>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      }
     </div>
   );
 }
 
 // ── Room Map ──────────────────────────────────────────────────────────────────
-function RoomMap({ getAttendeesForSession }) {
+function RoomMap({ getAttendeesForSession, dark }) {
   const [filterRoom, setFilterRoom] = useState('');
 
   const roomAttendees = useMemo(() => {
@@ -453,17 +410,39 @@ function RoomMap({ getAttendeesForSession }) {
 
   const filteredSessions = useMemo(() => {
     if (!filterRoom) return [];
-    return ALL_SESSIONS
-      .filter(s => s.room_short === filterRoom)
+    return ALL_SESSIONS.filter(s => s.room_short === filterRoom)
       .sort((a, b) => {
         const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
         return di !== 0 ? di : getStartMin(a) - getStartMin(b);
       });
   }, [filterRoom]);
 
-  const roomList = useMemo(() =>
-    [...new Set(ALL_SESSIONS.map(s => s.room_short).filter(Boolean))].sort(),
-  []);
+  const roomList = useMemo(() => [...new Set(ALL_SESSIONS.map(s => s.room_short).filter(Boolean))].sort(), []);
+
+  // SVG colours adapt to dark/light
+  const c = dark ? {
+    title: '#38bdf8', s2bg: '#1e3a5f', s2stroke: '#38bdf8', s2text: '#38bdf8',
+    mzBg: '#1a3048', mzStroke: '#0369a1', mzText: '#7dd3fc',
+    nBg: '#3b0764', nStroke: '#7c3aed', nText: '#a78bfa', nInner: '#1a0830', nInnerText: '#c4b5fd', nSub: '#7c3aed',
+    bcBg: '#063b1b', bcStroke: '#16a34a', bcText: '#4ade80',
+    roomFill: (active) => active ? '#1e4a7f' : '#0d2040',
+    roomStroke: (cnt) => cnt > 0 ? '#38bdf8' : '#1e4a7f',
+    roomText: '#7dd3fc', roomCnt: '#38bdf8',
+    regFill: '#1e3a5f', regText: '#60a5fa',
+    legend: [['#38bdf8', 'Breakout Rooms'], ['#4ade80', 'Basecamp'], ['#a78bfa', 'Keynotes'], ['#f59e0b', 'Labs']],
+    mapBg: '#030e1e',
+  } : {
+    title: '#1d4ed8', s2bg: '#dbeafe', s2stroke: '#3b82f6', s2text: '#1d4ed8',
+    mzBg: '#e0f2fe', mzStroke: '#0369a1', mzText: '#075985',
+    nBg: '#ede9fe', nStroke: '#7c3aed', nText: '#6d28d9', nInner: '#f5f3ff', nInnerText: '#6d28d9', nSub: '#7c3aed',
+    bcBg: '#dcfce7', bcStroke: '#16a34a', bcText: '#15803d',
+    roomFill: (active) => active ? '#bfdbfe' : '#e0f2fe',
+    roomStroke: (cnt) => cnt > 0 ? '#1d4ed8' : '#93c5fd',
+    roomText: '#1e3a5f', roomCnt: '#1d4ed8',
+    regFill: '#dbeafe', regText: '#1d4ed8',
+    legend: [['#3b82f6', 'Breakout Rooms'], ['#16a34a', 'Basecamp'], ['#7c3aed', 'Keynotes'], ['#d97706', 'Labs']],
+    mapBg: '#f8fafc',
+  };
 
   const RoomRect = ({ r, x, y, w = 60, h = 26 }) => {
     const key = 'Room ' + r;
@@ -471,23 +450,19 @@ function RoomMap({ getAttendeesForSession }) {
     const active = filterRoom === key;
     return (
       <g style={{ cursor: 'pointer' }} onClick={() => setFilterRoom(active ? '' : key)}>
-        <rect x={x} y={y} width={w} height={h} rx="4" fill={active ? '#bfdbfe' : '#e0f2fe'} stroke={cnt > 0 ? '#1d4ed8' : '#93c5fd'} strokeWidth={cnt > 0 ? 2 : 1} />
-        <text x={x + w / 2} y={y + 12} textAnchor="middle" fill="#1e3a5f" fontSize="9" fontFamily="monospace">Rm {r}</text>
-        {cnt > 0 && <text x={x + w / 2} y={y + 22} textAnchor="middle" fill="#1d4ed8" fontSize="8" fontFamily="monospace">{cnt}👤</text>}
+        <rect x={x} y={y} width={w} height={h} rx="4" fill={c.roomFill(active)} stroke={c.roomStroke(cnt)} strokeWidth={cnt > 0 ? 2 : 1} />
+        <text x={x + w / 2} y={y + 12} textAnchor="middle" fill={c.roomText} fontSize="9" fontFamily="monospace">Rm {r}</text>
+        {cnt > 0 && <text x={x + w / 2} y={y + 22} textAnchor="middle" fill={c.roomCnt} fontSize="8" fontFamily="monospace">{cnt}👤</text>}
       </g>
     );
   };
 
-  const Zone = ({ label, sublabel, short, x, y, w, h, c, sc }) => {
-    const cnt = (short || []).reduce((acc, r) => {
-      const s = roomAttendees[r] || new Set();
-      s.forEach(p => acc.add(p));
-      return acc;
-    }, new Set()).size;
+  const Zone = ({ label, sublabel, short, x, y, w, h, zc, sc }) => {
+    const cnt = (short || []).reduce((acc, r) => { (roomAttendees[r] || new Set()).forEach(p => acc.add(p)); return acc; }, new Set()).size;
     const active = short?.length === 1 && filterRoom === short[0];
     return (
       <g style={{ cursor: short?.length ? 'pointer' : 'default' }} onClick={() => { if (short?.length === 1) setFilterRoom(active ? '' : short[0]); }}>
-        <rect x={x} y={y} width={w} height={h} rx="5" fill={active ? c + 'cc' : c} stroke={cnt > 0 ? sc : sc + '55'} strokeWidth={cnt > 0 ? 2 : 1} opacity="0.9" />
+        <rect x={x} y={y} width={w} height={h} rx="5" fill={active ? zc + 'cc' : zc} stroke={cnt > 0 ? sc : sc + '55'} strokeWidth={cnt > 0 ? 2 : 1} opacity="0.9" />
         {label.split('\n').map((line, li) => (
           <text key={li} x={x + w / 2} y={y + h / 2 - (label.includes('\n') ? 8 : 3) + li * 13} textAnchor="middle" fill={sc} fontSize="9" fontWeight="700" fontFamily="monospace">{line}</text>
         ))}
@@ -497,59 +472,65 @@ function RoomMap({ getAttendeesForSession }) {
     );
   };
 
+  const zoneData = dark ? [
+    { label: "South Theater\n1 + 2", sublabel: "Hall A", short: ['Basecamp South Theater 1', 'Basecamp South Theater 2'], zc: "#064e3b", sc: "#10b981" },
+    { label: "Vertical Village\nTheater 1+2", sublabel: "Hall A/B", short: ['Vertical Village Theater 1', 'Vertical Village Theater 2'], zc: "#065f46", sc: "#34d399" },
+    { label: "Theater 3 + 4", sublabel: "Hall B/C", short: ['Basecamp South Theater 3', 'Basecamp South Theater 4'], zc: "#064e3b", sc: "#10b981" },
+    { label: "Builders Hub\nTheater", sublabel: "Hall D", short: ['Builders Hub Theater'], zc: "#1e3a5f", sc: "#38bdf8" },
+    { label: "AI Pop Up", sublabel: "Hall D", short: ['AI Pop Up'], zc: "#4a1d96", sc: "#a78bfa" },
+    { label: "Hands-on Labs\n1 / 2 / 3", sublabel: "Hall E", short: ['Hands-on Labs 1', 'Hands-on Labs 2', 'Hands-on Labs 3'], zc: "#78350f", sc: "#f59e0b" },
+    { label: "Partner Booths 190+", sublabel: "Hall F", short: [], zc: "#1e3a5f", sc: "#60a5fa" },
+    { label: "Industry Zone", sublabel: "South", short: [], zc: "#7f1d1d", sc: "#f87171" },
+  ] : [
+    { label: "South Theater\n1 + 2", sublabel: "Hall A", short: ['Basecamp South Theater 1', 'Basecamp South Theater 2'], zc: "#bbf7d0", sc: "#15803d" },
+    { label: "Vertical Village\nTheater 1+2", sublabel: "Hall A/B", short: ['Vertical Village Theater 1', 'Vertical Village Theater 2'], zc: "#a7f3d0", sc: "#047857" },
+    { label: "Theater 3 + 4", sublabel: "Hall B/C", short: ['Basecamp South Theater 3', 'Basecamp South Theater 4'], zc: "#bbf7d0", sc: "#15803d" },
+    { label: "Builders Hub\nTheater", sublabel: "Hall D", short: ['Builders Hub Theater'], zc: "#bfdbfe", sc: "#1d4ed8" },
+    { label: "AI Pop Up", sublabel: "Hall D", short: ['AI Pop Up'], zc: "#ddd6fe", sc: "#6d28d9" },
+    { label: "Hands-on Labs\n1 / 2 / 3", sublabel: "Hall E", short: ['Hands-on Labs 1', 'Hands-on Labs 2', 'Hands-on Labs 3'], zc: "#fde68a", sc: "#b45309" },
+    { label: "Partner Booths 190+", sublabel: "Hall F", short: [], zc: "#bfdbfe", sc: "#1e40af" },
+    { label: "Industry Zone", sublabel: "South", short: [], zc: "#fecaca", sc: "#b91c1c" },
+  ];
+
+  const zonePos = [
+    { x: 52, y: 364, w: 140, h: 70 }, { x: 202, y: 364, w: 140, h: 70 }, { x: 352, y: 364, w: 130, h: 70 },
+    { x: 492, y: 364, w: 130, h: 70 }, { x: 632, y: 364, w: 130, h: 70 },
+    { x: 52, y: 444, w: 200, h: 60 }, { x: 262, y: 444, w: 250, h: 60 }, { x: 522, y: 444, w: 130, h: 60 },
+  ];
+
   return (
     <div>
       <h2 style={S.h2}>🗺 Venue Map — Moscone Center</h2>
-      <div style={{ overflowX: 'auto', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', padding: 16, marginBottom: 20 }}>
+      <div style={{ overflowX: 'auto', background: 'var(--map-bg)', borderRadius: 8, border: '1px solid var(--map-border)', padding: 16, marginBottom: 20 }}>
         <svg viewBox="0 0 820 560" width="100%" style={{ maxWidth: 820 }}>
-          <defs>
-            <filter id="glow"><feGaussianBlur stdDeviation="3" result="coloredBlur" /><feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          </defs>
-          <text x="410" y="24" textAnchor="middle" fill="#1d4ed8" fontSize="14" fontWeight="700" fontFamily="monospace">Moscone Center — Snowflake Summit 26</text>
+          <text x="410" y="24" textAnchor="middle" fill={c.title} fontSize="14" fontWeight="700" fontFamily="monospace">Moscone Center — Snowflake Summit 26</text>
 
-          {/* Moscone South Level 2 */}
-          <rect x="40" y="40" width="340" height="168" rx="8" fill="#dbeafe" opacity="0.8" stroke="#3b82f6" strokeWidth="1.5" />
-          <text x="210" y="60" textAnchor="middle" fill="#1d4ed8" fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Level 2</text>
-          {[['205', 60, 72], ['206', 130, 72], ['208', 200, 72], ['209', 270, 72],
-            ['210', 60, 108], ['211', 130, 108], ['212', 200, 108], ['213', 270, 108],
-            ['214', 60, 144], ['215', 130, 144], ['216', 200, 144]].map(([r, x, y]) => (
-            <RoomRect key={r} r={r} x={x} y={y} />
-          ))}
+          <rect x="40" y="40" width="340" height="168" rx="8" fill={c.s2bg} opacity="0.6" stroke={c.s2stroke} strokeWidth="1.5" />
+          <text x="210" y="60" textAnchor="middle" fill={c.s2text} fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Level 2</text>
+          {[['205',60,72],['206',130,72],['208',200,72],['209',270,72],['210',60,108],['211',130,108],['212',200,108],['213',270,108],['214',60,144],['215',130,144],['216',200,144]].map(([r,x,y]) => <RoomRect key={r} r={r} x={x} y={y} />)}
 
-          {/* Moscone South Mezzanine */}
-          <rect x="40" y="222" width="340" height="102" rx="8" fill="#e0f2fe" opacity="0.8" stroke="#0369a1" strokeWidth="1.5" />
-          <text x="210" y="240" textAnchor="middle" fill="#075985" fontSize="10" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Upper Mezzanine</text>
-          {[['151', 55, 252], ['152', 125, 252], ['158', 195, 252], ['159', 265, 252], ['160', 55, 286]].map(([r, x, y]) => (
-            <RoomRect key={r} r={r} x={x} y={y} w={58} />
-          ))}
+          <rect x="40" y="222" width="340" height="102" rx="8" fill={c.mzBg} opacity="0.7" stroke={c.mzStroke} strokeWidth="1.5" />
+          <text x="210" y="240" textAnchor="middle" fill={c.mzText} fontSize="10" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Upper Mezzanine</text>
+          {[['151',55,252],['152',125,252],['158',195,252],['159',265,252],['160',55,286]].map(([r,x,y]) => <RoomRect key={r} r={r} x={x} y={y} w={58} />)}
 
-          {/* Moscone North */}
-          <rect x="420" y="40" width="360" height="120" rx="8" fill="#ede9fe" opacity="0.9" stroke="#7c3aed" strokeWidth="1.5" />
-          <text x="600" y="60" textAnchor="middle" fill="#6d28d9" fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE NORTH — Keynotes</text>
-          <rect x="460" y="72" width="280" height="68" rx="6" fill="#f5f3ff" stroke="#7c3aed" strokeWidth="1" />
-          <text x="600" y="110" textAnchor="middle" fill="#6d28d9" fontSize="10" fontFamily="monospace">🎤 Main Keynote Hall</text>
-          <text x="600" y="126" textAnchor="middle" fill="#7c3aed" fontSize="8" fontFamily="monospace">North Hall — Opening / Platform / Partner Keynotes</text>
+          <rect x="420" y="40" width="360" height="120" rx="8" fill={c.nBg} opacity="0.7" stroke={c.nStroke} strokeWidth="1.5" />
+          <text x="600" y="60" textAnchor="middle" fill={c.nText} fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE NORTH — Keynotes</text>
+          <rect x="460" y="72" width="280" height="68" rx="6" fill={c.nInner} stroke={c.nStroke} strokeWidth="1" />
+          <text x="600" y="110" textAnchor="middle" fill={c.nInnerText} fontSize="10" fontFamily="monospace">🎤 Main Keynote Hall</text>
+          <text x="600" y="126" textAnchor="middle" fill={c.nSub} fontSize="8" fontFamily="monospace">North Hall — Opening / Platform / Partner Keynotes</text>
 
-          {/* Basecamp */}
-          <rect x="40" y="336" width="740" height="210" rx="8" fill="#dcfce7" opacity="0.8" stroke="#16a34a" strokeWidth="1.5" />
-          <text x="410" y="356" textAnchor="middle" fill="#15803d" fontSize="11" fontWeight="700" fontFamily="monospace">BASECAMP — Expo Floor (South Halls A–F)</text>
+          <rect x="40" y="336" width="740" height="210" rx="8" fill={c.bcBg} opacity="0.7" stroke={c.bcStroke} strokeWidth="1.5" />
+          <text x="410" y="356" textAnchor="middle" fill={c.bcText} fontSize="11" fontWeight="700" fontFamily="monospace">BASECAMP — Expo Floor (South Halls A–F)</text>
 
-          <Zone label={"South Theater\n1 + 2"} sublabel="Hall A" short={['Basecamp South Theater 1', 'Basecamp South Theater 2']} x={52} y={364} w={140} h={70} c="#064e3b" sc="#10b981" />
-          <Zone label={"Vertical Village\nTheater 1+2"} sublabel="Hall A/B" short={['Vertical Village Theater 1', 'Vertical Village Theater 2']} x={202} y={364} w={140} h={70} c="#065f46" sc="#34d399" />
-          <Zone label={"Theater 3 + 4"} sublabel="Hall B/C" short={['Basecamp South Theater 3', 'Basecamp South Theater 4']} x={352} y={364} w={130} h={70} c="#064e3b" sc="#10b981" />
-          <Zone label={"Builders Hub\nTheater"} sublabel="Hall D" short={['Builders Hub Theater']} x={492} y={364} w={130} h={70} c="#1e3a5f" sc="#38bdf8" />
-          <Zone label={"AI Pop Up"} sublabel="Hall D" short={['AI Pop Up']} x={632} y={364} w={130} h={70} c="#4a1d96" sc="#a78bfa" />
-          <Zone label={"Hands-on Labs\n1 / 2 / 3"} sublabel="Hall E" short={['Hands-on Labs 1', 'Hands-on Labs 2', 'Hands-on Labs 3']} x={52} y={444} w={200} h={60} c="#78350f" sc="#f59e0b" />
-          <Zone label={"Partner Booths 190+"} sublabel="Hall F" short={[]} x={262} y={444} w={250} h={60} c="#1e3a5f" sc="#60a5fa" />
-          <Zone label={"Industry Zone"} sublabel="South" short={[]} x={522} y={444} w={130} h={60} c="#7f1d1d" sc="#f87171" />
+          {zoneData.map((z, i) => <Zone key={i} {...z} {...zonePos[i]} />)}
 
-          <rect x="310" y="522" width="200" height="20" rx="4" fill="#dbeafe" stroke="#93c5fd" strokeWidth="1" />
-          <text x="410" y="535" textAnchor="middle" fill="#1d4ed8" fontSize="9" fontFamily="monospace">🎟 Registration — Howard St Entrance</text>
+          <rect x="310" y="522" width="200" height="20" rx="4" fill={c.regFill} stroke={c.s2stroke} strokeWidth="1" />
+          <text x="410" y="535" textAnchor="middle" fill={c.regText} fontSize="9" fontFamily="monospace">🎟 Registration — Howard St Entrance</text>
 
-          {[['#3b82f6', 'Breakout Rooms'], ['#16a34a', 'Basecamp'], ['#7c3aed', 'Keynotes'], ['#d97706', 'Hands-on Labs']].map(([c, l], i) => (
+          {c.legend.map(([col, lbl], i) => (
             <g key={i}>
-              <rect x={50 + i * 180} y={508} width={10} height={10} rx="2" fill={c} />
-              <text x={65 + i * 180} y={517} fill={c} fontSize="8" fontFamily="monospace">{l}</text>
+              <rect x={50 + i * 180} y={508} width={10} height={10} rx="2" fill={col} />
+              <text x={65 + i * 180} y={517} fill={col} fontSize="8" fontFamily="monospace">{lbl}</text>
             </g>
           ))}
         </svg>
@@ -566,13 +547,13 @@ function RoomMap({ getAttendeesForSession }) {
         <div>
           <h3 style={S.h3}>Sessions in {filterRoom} ({filteredSessions.length})</h3>
           {filteredSessions.map(s => (
-            <div key={s.code} style={{ ...S.card, borderLeft: `3px solid ${COLORS[s.track] || '#1e4a7f'}` }}>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+            <div key={s.code} style={{ ...S.card, borderLeft: `3px solid ${COLORS[s.track] || '#64748b'}` }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                 <span style={S.tag(s.track)}>{s.track}</span>
-                <span style={{ fontSize: 10, color: '#475569' }}>{s.day}</span>
+                <span style={{ fontSize: 10, color: 'var(--text2)' }}>{s.day}</span>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>{s.title}</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>⏰ {s.time}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{s.title}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)' }}>⏰ {s.time}</div>
               {getAttendeesForSession(s.code).length > 0 && (
                 <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {getAttendeesForSession(s.code).map(n => <span key={n} style={S.pill}>{n}</span>)}
@@ -588,23 +569,26 @@ function RoomMap({ getAttendeesForSession }) {
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem('sf_unlocked') === '1');
+  const [unlocked, setUnlocked] = useState(() => localStorage.getItem('sf_unlocked') === '1');
   const [view, setView] = useState('schedule');
   const [myName, setMyName] = useState(() => localStorage.getItem('sf_my_name') || '');
   const [nameInput, setNameInput] = useState('');
   const [showNameInput, setShowNameInput] = useState(false);
+  const [dark, setDark] = useState(() => localStorage.getItem('sf_theme') === 'dark');
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('sf_theme', dark ? 'dark' : 'light');
+  }, [dark]);
 
   const { registrations, knownNames, loading, lastSync, register, unregister, addName, refresh, getAttendeesForSession, getSessionsForPerson } = useAttendees();
 
-  const handleUnlock = () => { sessionStorage.setItem('sf_unlocked', '1'); setUnlocked(true); };
+  const handleUnlock = () => { localStorage.setItem('sf_unlocked', '1'); setUnlocked(true); };
   const handleSetName = () => {
     const n = nameInput.trim();
     if (!n) return;
     localStorage.setItem('sf_my_name', n);
-    setMyName(n);
-    addName(n);
-    setShowNameInput(false);
-    setNameInput('');
+    setMyName(n); addName(n); setShowNameInput(false); setNameInput('');
   };
   const handleClearName = () => { localStorage.removeItem('sf_my_name'); setMyName(''); };
 
@@ -613,43 +597,39 @@ export default function App() {
   return (
     <div style={S.app}>
       <div style={S.nav}>
-        <span style={{ fontWeight: 800, color: '#1d4ed8', fontSize: 15 }}>❄️ Summit 26</span>
-        {[
-          { id: 'schedule', label: '📋 Schedule' },
-          { id: 'myplan', label: '📅 My Plan' },
-          { id: 'team', label: '👥 Team' },
-          { id: 'map', label: '🗺 Map' },
-        ].map(n => (
+        <span style={{ fontWeight: 800, color: 'var(--accent)', fontSize: 15 }}>❄️ Summit 26</span>
+        {[{ id: 'schedule', label: '📋 Schedule' }, { id: 'myplan', label: '📅 My Plan' }, { id: 'team', label: '👥 Team' }, { id: 'map', label: '🗺 Map' }].map(n => (
           <button key={n.id} style={S.navBtn(view === n.id)} onClick={() => setView(n.id)}>{n.label}</button>
         ))}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {!isSupabaseReady() && (
-            <span title="Add Supabase env vars to enable team sync" style={{ fontSize: 10, color: '#92400e', background: '#fef3c7', padding: '2px 8px', borderRadius: 4 }}>Local mode</span>
+            <span style={{ fontSize: 10, color: 'var(--badge-local-text)', background: 'var(--badge-local-bg)', padding: '2px 8px', borderRadius: 4 }}>Local mode</span>
           )}
-          <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 10px' }} onClick={refresh} title="Sync with server">⟳</button>
+          <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 10px' }} onClick={refresh} title="Sync">⟳</button>
+
+          {/* Theme toggle */}
+          <button
+            style={{ ...S.btn('default'), fontSize: 14, padding: '4px 10px' }}
+            onClick={() => setDark(d => !d)}
+            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {dark ? '☀️' : '🌙'}
+          </button>
 
           {myName ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#1d4ed8', background: '#eff6ff', padding: '5px 12px', borderRadius: 6, border: '1px solid #bfdbfe' }}>
-                👤 {myName} · {(registrations[myName]?.size || 0)} sessions
+              <span style={{ fontSize: 12, color: 'var(--me-text)', background: 'var(--me-bg)', padding: '5px 12px', borderRadius: 6, border: '1px solid var(--me-border)' }}>
+                👤 {myName} · {registrations[myName]?.size || 0} sessions
               </span>
               <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 8px' }} onClick={handleClearName} title="Switch user">✕</button>
             </div>
           ) : showNameInput ? (
             <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                style={{ ...S.input, width: 170 }}
-                placeholder="Your name…"
-                value={nameInput}
-                onChange={e => setNameInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSetName()}
-                list="known-names"
-                autoFocus
-              />
-              <datalist id="known-names">
-                {knownNames.map(n => <option key={n} value={n} />)}
-              </datalist>
+              <input style={{ ...S.input, width: 170 }} placeholder="Your name…" value={nameInput}
+                onChange={e => setNameInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSetName()}
+                list="known-names" autoFocus />
+              <datalist id="known-names">{knownNames.map(n => <option key={n} value={n} />)}</datalist>
               <button style={S.btn('primary')} onClick={handleSetName}>Set</button>
               <button style={{ ...S.btn('default'), padding: '4px 8px' }} onClick={() => setShowNameInput(false)}>✕</button>
             </div>
@@ -661,20 +641,20 @@ export default function App() {
 
       <div style={S.content}>
         {loading
-          ? <div style={{ color: '#475569', padding: 60, textAlign: 'center' }}>Loading…</div>
+          ? <div style={{ color: 'var(--text2)', padding: 60, textAlign: 'center' }}>Loading…</div>
           : <>
             {view === 'schedule' && <ScheduleView myName={myName} onRegister={register} onUnregister={unregister} getAttendeesForSession={getAttendeesForSession} registrations={registrations} />}
             {view === 'myplan' && <MyPlanView name={myName} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} onRegister={register} onUnregister={unregister} />}
             {view === 'team' && <TeamView knownNames={knownNames} registrations={registrations} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} />}
-            {view === 'map' && <RoomMap getAttendeesForSession={getAttendeesForSession} />}
+            {view === 'map' && <RoomMap getAttendeesForSession={getAttendeesForSession} dark={dark} />}
           </>
         }
       </div>
 
-      <div style={{ padding: '10px 20px', borderTop: '1px solid #e2e8f0', fontSize: 10, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+      <div style={{ padding: '10px 20px', borderTop: '1px solid var(--footer-border)', fontSize: 10, color: 'var(--footer-text)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
         <span>❄️ Snowflake Summit 26 · {ALL_SESSIONS.length} sessions · San Francisco, Jun 1–4 2026</span>
-        <span style={{ color: isSupabaseReady() ? '#4ade80' : '#f59e0b' }}>
-          {isSupabaseReady() ? '🟢 Live sync enabled' : '🟡 Local only — add Supabase for team sync'}
+        <span style={{ color: isSupabaseReady() ? '#4ade80' : 'var(--badge-local-text)' }}>
+          {isSupabaseReady() ? '🟢 Live sync' : '🟡 Local only'}
         </span>
       </div>
     </div>
