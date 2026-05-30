@@ -1,4 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setMobile(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  return mobile;
+}
 import { ALL_SESSIONS } from './sessions';
 import { useAttendees } from './useAttendees';
 import { isSupabaseReady } from './supabase';
@@ -132,7 +142,7 @@ function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
-function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession, registrations }) {
+function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession, registrations, isMobile }) {
   const [filterDay, setFilterDay] = useState(DAYS[0]);
   const [filterTrack, setFilterTrack] = useState('');
   const [search, setSearch] = useState('');
@@ -211,16 +221,14 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
       {grouped.map(({ label, day, sessions }) => (
         <div key={`${day}${label}`} style={{ display: 'flex', gap: 0, marginBottom: 24 }}>
           {/* Timeline left column */}
-          <div style={{ width: 90, flexShrink: 0, paddingTop: 2, textAlign: 'right', paddingRight: 16, position: 'relative' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--time-text)', whiteSpace: 'nowrap' }}>{label}</span>
-            {filterDay === '' && <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>{day}</div>}
-            {/* Timeline line */}
+          <div style={{ width: isMobile ? 62 : 90, flexShrink: 0, paddingTop: 2, textAlign: 'right', paddingRight: isMobile ? 10 : 16, position: 'relative' }}>
+            <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: 'var(--time-text)', whiteSpace: 'nowrap' }}>{label}</span>
+            {filterDay === '' && <div style={{ fontSize: 8, color: 'var(--text3)', marginTop: 2 }}>{day}</div>}
             <div style={{ position: 'absolute', right: 0, top: 0, bottom: -24, width: 2, background: 'var(--border)' }} />
-            {/* Timeline dot */}
             <div style={{ position: 'absolute', right: -5, top: 4, width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--bg)' }} />
           </div>
           {/* Cards column */}
-          <div style={{ flex: 1, paddingLeft: 16 }}>
+          <div style={{ flex: 1, paddingLeft: isMobile ? 10 : 16, minWidth: 0 }}>
             {sessions.map(s => (
               <SessionCard key={s.code} session={s} myName={myName} attendees={getAttendeesForSession(s.code)}
                 onRegister={(code) => onRegister(myName, code)} onUnregister={(code) => onUnregister(myName, code)} />
@@ -233,7 +241,7 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
 }
 
 // ── My Plan ───────────────────────────────────────────────────────────────────
-function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegister, onUnregister }) {
+function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegister, onUnregister, isMobile }) {
   const [selectedDay, setSelectedDay] = useState(DAYS[0]);
 
   const myCodes = useMemo(() => new Set(getSessionsForPerson(name)), [name, getSessionsForPerson]);
@@ -276,7 +284,7 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
         {DAYS.map(d => <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>{d} ({byDay[d]?.length || 0})</button>)}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: isMobile ? 12 : 20 }}>
         <div>
           <h3 style={S.h3}>✅ Registered ({dayMine.length})</h3>
           {dayMine.length === 0
@@ -312,7 +320,7 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
 }
 
 // ── Team View ─────────────────────────────────────────────────────────────────
-function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendeesForSession }) {
+function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendeesForSession, isMobile }) {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [selectedDay, setSelectedDay] = useState(DAYS[0]);
 
@@ -351,7 +359,7 @@ function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendee
       <h2 style={S.h2}>👥 Team Overview</h2>
       {knownNames.length === 0 && <p style={{ color: 'var(--text2)', fontSize: 14, padding: 20 }}>No team members yet — set your name in the top bar and join some sessions!</p>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 8, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill,minmax(260px,1fr))', gap: 8, marginBottom: 24 }}>
         {stats.map(({ name, total, byDay }) => (
           <div key={name} style={{ ...S.card, cursor: 'pointer', border: selectedPerson === name ? '1px solid #3b82f6' : S.card.border }}
             onClick={() => setSelectedPerson(name === selectedPerson ? null : name)}>
@@ -400,7 +408,7 @@ function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendee
       {knownNames.length === 0
         ? <p style={{ color: 'var(--text2)', fontSize: 13 }}>Add team members first.</p>
         : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill,minmax(260px,1fr))', gap: 6 }}>
             {teamFreeTime.map(({ time, busy, free }) => (
               <div key={time} style={{ ...S.card, background: free.length === knownNames.length ? 'var(--free-card)' : 'var(--surface)', borderColor: free.length === knownNames.length ? 'var(--free-card-border)' : 'var(--border)' }}>
                 <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, marginBottom: 6 }}>⏰ {time}</div>
@@ -610,9 +618,61 @@ function RoomMap({ getAttendeesForSession, dark }) {
   );
 }
 
+// ── Guide Modal ───────────────────────────────────────────────────────────────
+const GUIDE_STEPS = [
+  { icon: '❄️', title: 'Welcome to Summit 26 Tracker', body: 'Your team\'s hub for Snowflake Summit 2026 in San Francisco, Jun 1–4. Browse 528 sessions, build your agenda, and see what your teammates are attending — all in one place.' },
+  { icon: '👤', title: 'Set Your Name First', body: 'Tap "+ Set Name" in the top bar and type your name. This is how your teammates will see you. If your name is already in the system, just select it from the dropdown.' },
+  { icon: '📋', title: 'Browse & Join Sessions', body: 'Use the Schedule tab to explore all sessions. Filter by day, track, or search by keyword. Tap "+ Join" on any session to add it to your plan. Tap "✓ Joined" to remove it.' },
+  { icon: '👥', title: 'See Your Team\'s Plan', body: 'The Team tab shows everyone\'s session count and free time slots. Tap a teammate\'s card to see their full daily schedule. Green slots = everyone is free — great for group meetups!' },
+  { icon: '🗺️', title: 'Navigate the Venue', body: 'The Map tab shows the full Moscone Center layout. Tap any room to see all sessions happening there, including who from your team is attending each one.' },
+];
+
+function GuideModal({ onClose }) {
+  const [step, setStep] = useState(0);
+  const current = GUIDE_STEPS[step];
+  const isLast = step === GUIDE_STEPS.length - 1;
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        {/* Progress dots */}
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 24 }}>
+          {GUIDE_STEPS.map((_, i) => (
+            <div key={i} onClick={() => setStep(i)} style={{ width: i === step ? 24 : 8, height: 8, borderRadius: 999, background: i === step ? 'var(--accent)' : 'var(--border)', cursor: 'pointer', transition: 'all 0.2s' }} />
+          ))}
+        </div>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>{current.icon}</div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', margin: '0 0 10px' }}>{current.title}</h2>
+          <p style={{ fontSize: 14, color: 'var(--text2)', lineHeight: 1.6, margin: 0 }}>{current.body}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+          {step > 0 && (
+            <button style={{ ...S.btn('default'), flex: 1, padding: '10px 0' }} onClick={() => setStep(s => s - 1)}>← Back</button>
+          )}
+          <button style={{ ...S.btn('primary'), flex: 2, padding: '10px 0', fontSize: 14 }} onClick={() => isLast ? onClose() : setStep(s => s + 1)}>
+            {isLast ? 'Get Started →' : 'Next →'}
+          </button>
+        </div>
+        <button onClick={onClose} style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>
+          Skip guide
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  { id: 'schedule', label: 'Schedule', icon: '📋' },
+  { id: 'myplan',   label: 'My Plan',  icon: '📅' },
+  { id: 'team',     label: 'Team',     icon: '👥' },
+  { id: 'map',      label: 'Map',      icon: '🗺️' },
+];
+
 export default function App() {
+  const isMobile = useIsMobile();
   const [unlocked, setUnlocked] = useState(() => localStorage.getItem('sf_unlocked') === '1');
+  const [showGuide, setShowGuide] = useState(() => localStorage.getItem('sf_guide_seen') !== '1');
   const [view, setView] = useState('schedule');
   const [myName, setMyName] = useState(() => localStorage.getItem('sf_my_name') || '');
   const [nameInput, setNameInput] = useState('');
@@ -624,9 +684,10 @@ export default function App() {
     localStorage.setItem('sf_theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  const { registrations, knownNames, loading, lastSync, register, unregister, addName, refresh, getAttendeesForSession, getSessionsForPerson } = useAttendees();
+  const { registrations, knownNames, loading, register, unregister, addName, refresh, getAttendeesForSession, getSessionsForPerson } = useAttendees();
 
   const handleUnlock = () => { localStorage.setItem('sf_unlocked', '1'); setUnlocked(true); };
+  const handleGuideClose = () => { localStorage.setItem('sf_guide_seen', '1'); setShowGuide(false); };
   const handleSetName = () => {
     const n = nameInput.trim();
     if (!n) return;
@@ -638,38 +699,38 @@ export default function App() {
   if (!unlocked) return <GateScreen onUnlock={handleUnlock} />;
 
   return (
-    <div style={S.app}>
-      <div style={S.nav}>
+    <div style={{ ...S.app, paddingBottom: isMobile ? 64 : 0 }}>
+      {showGuide && <GuideModal onClose={handleGuideClose} />}
+
+      {/* Top bar */}
+      <div style={{ ...S.nav, padding: isMobile ? '8px 16px' : '10px 24px' }}>
         <span style={{ fontWeight: 800, color: 'var(--accent)', fontSize: 15 }}>❄️ Summit 26</span>
-        {[{ id: 'schedule', label: '📋 Schedule' }, { id: 'myplan', label: '📅 My Plan' }, { id: 'team', label: '👥 Team' }, { id: 'map', label: '🗺 Map' }].map(n => (
-          <button key={n.id} style={S.navBtn(view === n.id)} onClick={() => setView(n.id)}>{n.label}</button>
+
+        {/* Desktop nav tabs — hidden on mobile */}
+        {!isMobile && NAV_ITEMS.map(n => (
+          <button key={n.id} style={S.navBtn(view === n.id)} onClick={() => setView(n.id)}>{n.icon} {n.label}</button>
         ))}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {!isSupabaseReady() && (
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          {!isSupabaseReady() && !isMobile && (
             <span style={{ fontSize: 10, color: 'var(--badge-local-text)', background: 'var(--badge-local-bg)', padding: '2px 8px', borderRadius: 4 }}>Local mode</span>
           )}
-          <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 10px' }} onClick={refresh} title="Sync">⟳</button>
-
-          {/* Theme toggle */}
-          <button
-            style={{ ...S.btn('default'), fontSize: 14, padding: '4px 10px' }}
-            onClick={() => setDark(d => !d)}
-            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
+          <button style={{ ...S.btn('default'), fontSize: 13, padding: '4px 8px' }} onClick={refresh} title="Sync">⟳</button>
+          <button style={{ ...S.btn('default'), fontSize: 14, padding: '4px 8px' }} onClick={() => setDark(d => !d)} title="Toggle theme">
             {dark ? '☀️' : '🌙'}
           </button>
+          <button style={{ ...S.btn('default'), fontSize: 13, padding: '4px 8px' }} onClick={() => setShowGuide(true)} title="Help">?</button>
 
           {myName ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--me-text)', background: 'var(--me-bg)', padding: '5px 12px', borderRadius: 6, border: '1px solid var(--me-border)' }}>
-                👤 {myName} · {registrations[myName]?.size || 0} sessions
+              <span style={{ fontSize: 12, color: 'var(--me-text)', background: 'var(--me-bg)', padding: '5px 10px', borderRadius: 6, border: '1px solid var(--me-border)', maxWidth: isMobile ? 140 : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                👤 {isMobile ? myName.split(' ')[0] : `${myName} · ${registrations[myName]?.size || 0} sessions`}
               </span>
-              <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 8px' }} onClick={handleClearName} title="Switch user">✕</button>
+              <button style={{ ...S.btn('default'), fontSize: 11, padding: '4px 8px' }} onClick={handleClearName}>✕</button>
             </div>
           ) : showNameInput ? (
             <div style={{ display: 'flex', gap: 6 }}>
-              <input style={{ ...S.input, width: 170 }} placeholder="Your name…" value={nameInput}
+              <input style={{ ...S.input, width: isMobile ? 130 : 170 }} placeholder="Your name…" value={nameInput}
                 onChange={e => setNameInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSetName()}
                 list="known-names" autoFocus />
               <datalist id="known-names">{knownNames.map(n => <option key={n} value={n} />)}</datalist>
@@ -677,29 +738,45 @@ export default function App() {
               <button style={{ ...S.btn('default'), padding: '4px 8px' }} onClick={() => setShowNameInput(false)}>✕</button>
             </div>
           ) : (
-            <button style={S.btn('primary')} onClick={() => setShowNameInput(true)}>+ Set Name</button>
+            <button style={S.btn('primary')} onClick={() => setShowNameInput(true)}>+ {isMobile ? 'Name' : 'Set Name'}</button>
           )}
         </div>
       </div>
 
-      <div style={S.content}>
+      <div style={{ ...S.content, padding: isMobile ? '12px 12px' : '20px 24px' }}>
         {loading
           ? <div style={{ color: 'var(--text2)', padding: 60, textAlign: 'center' }}>Loading…</div>
           : <>
-            {view === 'schedule' && <ScheduleView myName={myName} onRegister={register} onUnregister={unregister} getAttendeesForSession={getAttendeesForSession} registrations={registrations} />}
-            {view === 'myplan' && <MyPlanView name={myName} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} onRegister={register} onUnregister={unregister} />}
-            {view === 'team' && <TeamView knownNames={knownNames} registrations={registrations} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} />}
-            {view === 'map' && <RoomMap getAttendeesForSession={getAttendeesForSession} dark={dark} />}
+            {view === 'schedule' && <ScheduleView myName={myName} onRegister={register} onUnregister={unregister} getAttendeesForSession={getAttendeesForSession} registrations={registrations} isMobile={isMobile} />}
+            {view === 'myplan' && <MyPlanView name={myName} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} onRegister={register} onUnregister={unregister} isMobile={isMobile} />}
+            {view === 'team' && <TeamView knownNames={knownNames} registrations={registrations} getSessionsForPerson={getSessionsForPerson} getAttendeesForSession={getAttendeesForSession} isMobile={isMobile} />}
+            {view === 'map' && <RoomMap getAttendeesForSession={getAttendeesForSession} dark={dark} isMobile={isMobile} />}
           </>
         }
       </div>
 
-      <div style={{ padding: '10px 20px', borderTop: '1px solid var(--footer-border)', fontSize: 10, color: 'var(--footer-text)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
-        <span>❄️ Snowflake Summit 26 · {ALL_SESSIONS.length} sessions · San Francisco, Jun 1–4 2026</span>
-        <span style={{ color: isSupabaseReady() ? '#4ade80' : 'var(--badge-local-text)' }}>
-          {isSupabaseReady() ? '🟢 Live sync' : '🟡 Local only'}
-        </span>
-      </div>
+      {/* Footer — desktop only */}
+      {!isMobile && (
+        <div style={{ padding: '10px 24px', borderTop: '1px solid var(--footer-border)', fontSize: 10, color: 'var(--footer-text)', display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+          <span>❄️ Snowflake Summit 26 · {ALL_SESSIONS.length} sessions · San Francisco, Jun 1–4 2026</span>
+          <span style={{ color: isSupabaseReady() ? '#4ade80' : 'var(--badge-local-text)' }}>
+            {isSupabaseReady() ? '🟢 Live sync' : '🟡 Local only'}
+          </span>
+        </div>
+      )}
+
+      {/* Mobile bottom tab bar */}
+      {isMobile && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--nav-bg)', borderTop: '1px solid var(--nav-border)', display: 'flex', zIndex: 100, boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' }}>
+          {NAV_ITEMS.map(n => (
+            <button key={n.id} onClick={() => setView(n.id)} style={{ flex: 1, border: 'none', cursor: 'pointer', padding: '8px 4px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, background: 'none', color: view === n.id ? 'var(--accent)' : 'var(--text3)', transition: 'color 0.15s' }}>
+              <span style={{ fontSize: 20 }}>{n.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: view === n.id ? 700 : 400 }}>{n.label}</span>
+              {view === n.id && <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--accent)', marginTop: 1 }} />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
