@@ -92,9 +92,14 @@ function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
       <div style={{ padding: '12px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 5 }}>
-              <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'monospace' }}>{session.code}</span>
-              <span style={S.tag(session.track)}>{session.track}</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 5 }}>
+              <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'monospace' }}>{session.code}</span>
+              <span style={{ fontSize: 10, color: 'var(--text2)' }}>{session.track}</span>
+              {attendees.length > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '1px 8px', borderRadius: 999 }}>
+                  👥 {attendees.length} attending
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
             <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
