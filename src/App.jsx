@@ -13,13 +13,13 @@ const COLORS = {
   'Architecture': '#b45309',
   'BI & Analytics': '#065f46',
   'Governance': '#9d174d',
-  'Platform & Ops': '#1e40af',
+  'Platform & Ops': '#64748b',
   'Industry': '#7f1d1d',
   'Data Marketplace': '#4d7c0f',
-  'Admin': '#374151',
-  'General': '#374151',
+  'Admin': '#64748b',
+  'General': '#64748b',
   'Executive': '#92400e',
-  'Security': '#1e3a5f',
+  'Security': '#64748b',
   'User Group': '#4a1d96',
 };
 
@@ -86,36 +86,51 @@ function GateScreen({ onUnlock }) {
 // ── Session Card ──────────────────────────────────────────────────────────────
 function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
   const isRegistered = myName && attendees.includes(myName);
+  const trackColor = COLORS[session.track] || '#64748b';
   return (
-    <div style={{ ...S.card, borderLeft: `3px solid ${COLORS[session.track] || '#64748b'}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'monospace' }}>{session.code}</span>
-            <span style={S.tag(session.track)}>{session.track}</span>
-            {attendees.length > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', border: '1px solid #86efac', padding: '1px 7px', borderRadius: 999 }}>
-                👥 {attendees.length} attending
-              </span>
-            )}
+    <div style={{ ...S.card, borderLeft: `4px solid ${trackColor}`, padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 5 }}>
+              <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'monospace' }}>{session.code}</span>
+              <span style={S.tag(session.track)}>{session.track}</span>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <span>⏰ {session.time}</span>
+              {session.room_short && <span>📍 {session.room_short}</span>}
+            </div>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
-          <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <span>⏰ {session.time}</span>
-            {session.room_short && <span>📍 {session.room_short}</span>}
-          </div>
+          {myName && (
+            isRegistered
+              ? <button style={S.btn('danger')} onClick={() => onUnregister(session.code)}>✓ Joined</button>
+              : <button style={S.btn('success')} onClick={() => onRegister(session.code)}>+ Join</button>
+          )}
         </div>
-        {myName && (
-          isRegistered
-            ? <button style={S.btn('danger')} onClick={() => onUnregister(session.code)}>✓ Joined</button>
-            : <button style={S.btn('success')} onClick={() => onRegister(session.code)}>+ Join</button>
-        )}
       </div>
+
       {attendees.length > 0 && (
-        <div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {attendees.map(n => (
-            <span key={n} style={{ ...S.pill, background: n === myName ? 'var(--me-bg)' : 'var(--pill-bg)', borderColor: n === myName ? 'var(--me-border)' : 'var(--pill-border)', color: n === myName ? 'var(--me-text)' : 'var(--pill-text)' }}>{n}</span>
-          ))}
+        <div style={{ borderTop: '1px solid #bbf7d0', background: '#f0fdf4', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>
+            👥 {attendees.length} attending
+          </span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {attendees.map(n => (
+              <span key={n} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+                background: n === myName ? '#dcfce7' : '#ffffff',
+                border: `1px solid ${n === myName ? '#16a34a' : '#86efac'}`,
+                color: n === myName ? '#15803d' : '#166534',
+              }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', background: n === myName ? '#16a34a' : '#4ade80', color: '#fff', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {n.charAt(0).toUpperCase()}
+                </span>
+                {n}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
