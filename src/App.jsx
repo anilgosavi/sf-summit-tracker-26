@@ -433,8 +433,46 @@ function TeamView({ knownNames, registrations, getSessionsForPerson, getAttendee
   );
 }
 
+// Building floors — top to bottom = upper floors to ground
+const BUILDING_FLOORS = [
+  {
+    id: 'north', label: 'Moscone North', sublabel: 'Keynotes', icon: '🎤', color: '#7c3aed',
+    note: 'Main Keynote Hall — Opening, Platform & Partner Keynotes',
+    zones: null,
+    rooms: [],
+  },
+  {
+    id: 'mz', label: 'Upper Mezzanine', sublabel: 'Moscone South', icon: '🔼', color: '#0369a1',
+    note: null,
+    zones: [{ label: 'Mezzanine Corridor', rooms: ['Room 151','Room 152','Room 158','Room 159','Room 160'] }],
+    rooms: ['Room 151','Room 152','Room 158','Room 159','Room 160'],
+  },
+  {
+    id: 'l2', label: 'Level 2', sublabel: 'Moscone South', icon: '🏢', color: '#0284c7',
+    note: null,
+    zones: [
+      { label: 'North Wing', rooms: ['Room 205','Room 206','Room 208','Room 209'] },
+      { label: 'Central Wing', rooms: ['Room 210','Room 211','Room 212','Room 213'] },
+      { label: 'South Wing', rooms: ['Room 214','Room 215','Room 216'] },
+    ],
+    rooms: ['Room 205','Room 206','Room 208','Room 209','Room 210','Room 211','Room 212','Room 213','Room 214','Room 215','Room 216'],
+  },
+  {
+    id: 'bc', label: 'Basecamp', sublabel: 'Ground Floor · Expo', icon: '🏕️', color: '#059669',
+    note: null,
+    zones: [
+      { label: 'Hall A — South Theaters', rooms: ['Basecamp South Theater 1','Basecamp South Theater 2','Vertical Village Theater 1','Vertical Village Theater 2'] },
+      { label: 'Hall B/C — Theaters 3 & 4', rooms: ['Basecamp South Theater 3','Basecamp South Theater 4'] },
+      { label: 'Hall D — Builders Hub & AI', rooms: ['Builders Hub Theater','AI Pop Up'] },
+      { label: 'Hall E — Hands-on Labs', rooms: ['Hands-on Labs 1','Hands-on Labs 2','Hands-on Labs 3'] },
+    ],
+    rooms: ['Basecamp South Theater 1','Basecamp South Theater 2','Basecamp South Theater 3','Basecamp South Theater 4','Vertical Village Theater 1','Vertical Village Theater 2','Builders Hub Theater','Hands-on Labs 1','Hands-on Labs 2','Hands-on Labs 3','AI Pop Up'],
+  },
+];
+
 // ── Room Map ──────────────────────────────────────────────────────────────────
-function RoomMap({ getAttendeesForSession, dark }) {
+function RoomMap({ getAttendeesForSession, dark, isMobile }) {
+  const [activeFloor, setActiveFloor] = useState('l2');
   const [filterRoom, setFilterRoom] = useState('');
 
   const roomAttendees = useMemo(() => {
@@ -448,6 +486,15 @@ function RoomMap({ getAttendeesForSession, dark }) {
     return m;
   }, [getAttendeesForSession]);
 
+  const sessionCounts = useMemo(() => {
+    const m = {};
+    for (const s of ALL_SESSIONS) {
+      if (!s.room_short) continue;
+      m[s.room_short] = (m[s.room_short] || 0) + 1;
+    }
+    return m;
+  }, []);
+
   const filteredSessions = useMemo(() => {
     if (!filterRoom) return [];
     return ALL_SESSIONS.filter(s => s.room_short === filterRoom)
@@ -457,137 +504,151 @@ function RoomMap({ getAttendeesForSession, dark }) {
       });
   }, [filterRoom]);
 
-  const roomList = useMemo(() => [...new Set(ALL_SESSIONS.map(s => s.room_short).filter(Boolean))].sort(), []);
+  const floor = BUILDING_FLOORS.find(f => f.id === activeFloor);
 
-  // SVG colours adapt to dark/light
-  const c = dark ? {
-    title: '#38bdf8', s2bg: '#1e3a5f', s2stroke: '#38bdf8', s2text: '#38bdf8',
-    mzBg: '#1a3048', mzStroke: '#0369a1', mzText: '#7dd3fc',
-    nBg: '#3b0764', nStroke: '#7c3aed', nText: '#a78bfa', nInner: '#1a0830', nInnerText: '#c4b5fd', nSub: '#7c3aed',
-    bcBg: '#063b1b', bcStroke: '#16a34a', bcText: '#4ade80',
-    roomFill: (active) => active ? '#1e4a7f' : '#0d2040',
-    roomStroke: (cnt) => cnt > 0 ? '#38bdf8' : '#1e4a7f',
-    roomText: '#7dd3fc', roomCnt: '#38bdf8',
-    regFill: '#1e3a5f', regText: '#60a5fa',
-    legend: [['#38bdf8', 'Breakout Rooms'], ['#4ade80', 'Basecamp'], ['#a78bfa', 'Keynotes'], ['#f59e0b', 'Labs']],
-    mapBg: '#030e1e',
-  } : {
-    title: '#1d4ed8', s2bg: '#dbeafe', s2stroke: '#3b82f6', s2text: '#1d4ed8',
-    mzBg: '#e0f2fe', mzStroke: '#0369a1', mzText: '#075985',
-    nBg: '#ede9fe', nStroke: '#7c3aed', nText: '#6d28d9', nInner: '#f5f3ff', nInnerText: '#6d28d9', nSub: '#7c3aed',
-    bcBg: '#dcfce7', bcStroke: '#16a34a', bcText: '#15803d',
-    roomFill: (active) => active ? '#bfdbfe' : '#e0f2fe',
-    roomStroke: (cnt) => cnt > 0 ? '#1d4ed8' : '#93c5fd',
-    roomText: '#1e3a5f', roomCnt: '#1d4ed8',
-    regFill: '#dbeafe', regText: '#1d4ed8',
-    legend: [['#3b82f6', 'Breakout Rooms'], ['#16a34a', 'Basecamp'], ['#7c3aed', 'Keynotes'], ['#d97706', 'Labs']],
-    mapBg: '#f8fafc',
-  };
-
-  const RoomRect = ({ r, x, y, w = 60, h = 26 }) => {
-    const key = 'Room ' + r;
-    const cnt = (roomAttendees[key] || new Set()).size;
-    const active = filterRoom === key;
+  const RoomCard = ({ room, color }) => {
+    const attendees = [...(roomAttendees[room] || new Set())];
+    const count = sessionCounts[room] || 0;
+    const hasTeam = attendees.length > 0;
+    const isActive = filterRoom === room;
+    const short = room.replace('Room ', 'Rm ').replace('Basecamp South Theater ', 'S.Theater ').replace('Vertical Village Theater ', 'VV Theater ').replace('Hands-on Labs ', 'Lab ');
     return (
-      <g style={{ cursor: 'pointer' }} onClick={() => setFilterRoom(active ? '' : key)}>
-        <rect x={x} y={y} width={w} height={h} rx="4" fill={c.roomFill(active)} stroke={c.roomStroke(cnt)} strokeWidth={cnt > 0 ? 2 : 1} />
-        <text x={x + w / 2} y={y + 12} textAnchor="middle" fill={c.roomText} fontSize="9" fontFamily="monospace">Rm {r}</text>
-        {cnt > 0 && <text x={x + w / 2} y={y + 22} textAnchor="middle" fill={c.roomCnt} fontSize="8" fontFamily="monospace">{cnt}👤</text>}
-      </g>
+      <div onClick={() => setFilterRoom(isActive ? '' : room)} style={{
+        background: isActive ? color : 'var(--surface)',
+        border: `2px solid ${hasTeam || isActive ? color : 'var(--border)'}`,
+        borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
+        transition: 'all 0.15s', position: 'relative',
+        boxShadow: hasTeam ? `0 0 0 3px ${color}25` : 'none',
+        minWidth: 0,
+      }}>
+        {hasTeam && (
+          <div style={{ position: 'absolute', top: -7, right: -7, background: color, color: '#fff', borderRadius: 999, width: 18, height: 18, fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg)' }}>
+            {attendees.length}
+          </div>
+        )}
+        <div style={{ fontSize: 11, fontWeight: 700, color: isActive ? '#fff' : 'var(--text)', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{short}</div>
+        <div style={{ fontSize: 9, color: isActive ? 'rgba(255,255,255,0.75)' : 'var(--text3)' }}>{count} sessions</div>
+        {hasTeam && (
+          <div style={{ display: 'flex', gap: 2, marginTop: 5 }}>
+            {attendees.slice(0, 4).map(n => (
+              <span key={n} style={{ width: 16, height: 16, borderRadius: '50%', background: isActive ? 'rgba(255,255,255,0.35)' : color, color: '#fff', fontSize: 8, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {n.charAt(0)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     );
   };
-
-  const Zone = ({ label, sublabel, short, x, y, w, h, zc, sc }) => {
-    const cnt = (short || []).reduce((acc, r) => { (roomAttendees[r] || new Set()).forEach(p => acc.add(p)); return acc; }, new Set()).size;
-    const active = short?.length === 1 && filterRoom === short[0];
-    return (
-      <g style={{ cursor: short?.length ? 'pointer' : 'default' }} onClick={() => { if (short?.length === 1) setFilterRoom(active ? '' : short[0]); }}>
-        <rect x={x} y={y} width={w} height={h} rx="5" fill={active ? zc + 'cc' : zc} stroke={cnt > 0 ? sc : sc + '55'} strokeWidth={cnt > 0 ? 2 : 1} opacity="0.9" />
-        {label.split('\n').map((line, li) => (
-          <text key={li} x={x + w / 2} y={y + h / 2 - (label.includes('\n') ? 8 : 3) + li * 13} textAnchor="middle" fill={sc} fontSize="9" fontWeight="700" fontFamily="monospace">{line}</text>
-        ))}
-        <text x={x + w / 2} y={y + h - 7} textAnchor="middle" fill={sc} fontSize="7.5" fontFamily="monospace" opacity="0.7">{sublabel}</text>
-        {cnt > 0 && <text x={x + w - 8} y={y + 14} textAnchor="middle" fill={sc} fontSize="9" fontFamily="monospace">{cnt}👤</text>}
-      </g>
-    );
-  };
-
-  const zoneData = dark ? [
-    { label: "South Theater\n1 + 2", sublabel: "Hall A", short: ['Basecamp South Theater 1', 'Basecamp South Theater 2'], zc: "#064e3b", sc: "#10b981" },
-    { label: "Vertical Village\nTheater 1+2", sublabel: "Hall A/B", short: ['Vertical Village Theater 1', 'Vertical Village Theater 2'], zc: "#065f46", sc: "#34d399" },
-    { label: "Theater 3 + 4", sublabel: "Hall B/C", short: ['Basecamp South Theater 3', 'Basecamp South Theater 4'], zc: "#064e3b", sc: "#10b981" },
-    { label: "Builders Hub\nTheater", sublabel: "Hall D", short: ['Builders Hub Theater'], zc: "#1e3a5f", sc: "#38bdf8" },
-    { label: "AI Pop Up", sublabel: "Hall D", short: ['AI Pop Up'], zc: "#4a1d96", sc: "#a78bfa" },
-    { label: "Hands-on Labs\n1 / 2 / 3", sublabel: "Hall E", short: ['Hands-on Labs 1', 'Hands-on Labs 2', 'Hands-on Labs 3'], zc: "#78350f", sc: "#f59e0b" },
-    { label: "Partner Booths 190+", sublabel: "Hall F", short: [], zc: "#1e3a5f", sc: "#60a5fa" },
-    { label: "Industry Zone", sublabel: "South", short: [], zc: "#7f1d1d", sc: "#f87171" },
-  ] : [
-    { label: "South Theater\n1 + 2", sublabel: "Hall A", short: ['Basecamp South Theater 1', 'Basecamp South Theater 2'], zc: "#bbf7d0", sc: "#15803d" },
-    { label: "Vertical Village\nTheater 1+2", sublabel: "Hall A/B", short: ['Vertical Village Theater 1', 'Vertical Village Theater 2'], zc: "#a7f3d0", sc: "#047857" },
-    { label: "Theater 3 + 4", sublabel: "Hall B/C", short: ['Basecamp South Theater 3', 'Basecamp South Theater 4'], zc: "#bbf7d0", sc: "#15803d" },
-    { label: "Builders Hub\nTheater", sublabel: "Hall D", short: ['Builders Hub Theater'], zc: "#bfdbfe", sc: "#1d4ed8" },
-    { label: "AI Pop Up", sublabel: "Hall D", short: ['AI Pop Up'], zc: "#ddd6fe", sc: "#6d28d9" },
-    { label: "Hands-on Labs\n1 / 2 / 3", sublabel: "Hall E", short: ['Hands-on Labs 1', 'Hands-on Labs 2', 'Hands-on Labs 3'], zc: "#fde68a", sc: "#b45309" },
-    { label: "Partner Booths 190+", sublabel: "Hall F", short: [], zc: "#bfdbfe", sc: "#1e40af" },
-    { label: "Industry Zone", sublabel: "South", short: [], zc: "#fecaca", sc: "#b91c1c" },
-  ];
-
-  const zonePos = [
-    { x: 52, y: 364, w: 140, h: 70 }, { x: 202, y: 364, w: 140, h: 70 }, { x: 352, y: 364, w: 130, h: 70 },
-    { x: 492, y: 364, w: 130, h: 70 }, { x: 632, y: 364, w: 130, h: 70 },
-    { x: 52, y: 444, w: 200, h: 60 }, { x: 262, y: 444, w: 250, h: 60 }, { x: 522, y: 444, w: 130, h: 60 },
-  ];
 
   return (
     <div>
-      <h2 style={S.h2}>🗺 Venue Map — Moscone Center</h2>
-      <div style={{ overflowX: 'auto', background: 'var(--map-bg)', borderRadius: 8, border: '1px solid var(--map-border)', padding: 16, marginBottom: 20 }}>
-        <svg viewBox="0 0 820 560" width="100%" style={{ maxWidth: 820 }}>
-          <text x="410" y="24" textAnchor="middle" fill={c.title} fontSize="14" fontWeight="700" fontFamily="monospace">Moscone Center — Snowflake Summit 26</text>
+      <h2 style={S.h2}>🗺 Moscone Center — Floor Guide</h2>
 
-          <rect x="40" y="40" width="340" height="168" rx="8" fill={c.s2bg} opacity="0.6" stroke={c.s2stroke} strokeWidth="1.5" />
-          <text x="210" y="60" textAnchor="middle" fill={c.s2text} fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Level 2</text>
-          {[['205',60,72],['206',130,72],['208',200,72],['209',270,72],['210',60,108],['211',130,108],['212',200,108],['213',270,108],['214',60,144],['215',130,144],['216',200,144]].map(([r,x,y]) => <RoomRect key={r} r={r} x={x} y={y} />)}
+      {/* Building schematic */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
 
-          <rect x="40" y="222" width="340" height="102" rx="8" fill={c.mzBg} opacity="0.7" stroke={c.mzStroke} strokeWidth="1.5" />
-          <text x="210" y="240" textAnchor="middle" fill={c.mzText} fontSize="10" fontWeight="700" fontFamily="monospace">MOSCONE SOUTH — Upper Mezzanine</text>
-          {[['151',55,252],['152',125,252],['158',195,252],['159',265,252],['160',55,286]].map(([r,x,y]) => <RoomRect key={r} r={r} x={x} y={y} w={58} />)}
+        {/* Building label */}
+        <div style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', padding: '8px 16px', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>📍 Moscone Center, San Francisco</span>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>Howard St Entrance ↓</span>
+        </div>
 
-          <rect x="420" y="40" width="360" height="120" rx="8" fill={c.nBg} opacity="0.7" stroke={c.nStroke} strokeWidth="1.5" />
-          <text x="600" y="60" textAnchor="middle" fill={c.nText} fontSize="11" fontWeight="700" fontFamily="monospace">MOSCONE NORTH — Keynotes</text>
-          <rect x="460" y="72" width="280" height="68" rx="6" fill={c.nInner} stroke={c.nStroke} strokeWidth="1" />
-          <text x="600" y="110" textAnchor="middle" fill={c.nInnerText} fontSize="10" fontFamily="monospace">🎤 Main Keynote Hall</text>
-          <text x="600" y="126" textAnchor="middle" fill={c.nSub} fontSize="8" fontFamily="monospace">North Hall — Opening / Platform / Partner Keynotes</text>
+        {/* Floor strips — stacked like a real building (top floor first) */}
+        {BUILDING_FLOORS.map((f, idx) => {
+          const isActive = activeFloor === f.id;
+          const floorAttendees = [...f.rooms.reduce((acc, r) => { (roomAttendees[r] || new Set()).forEach(p => acc.add(p)); return acc; }, new Set())];
+          const totalSessions = f.rooms.reduce((a, r) => a + (sessionCounts[r] || 0), 0);
+          return (
+            <div key={f.id}>
+              {/* Floor header row */}
+              <div
+                onClick={() => { setActiveFloor(f.id); setFilterRoom(''); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                  cursor: 'pointer', background: isActive ? `${f.color}12` : 'transparent',
+                  borderLeft: `4px solid ${isActive ? f.color : 'transparent'}`,
+                  borderBottom: idx < BUILDING_FLOORS.length - 1 ? '1px solid var(--border)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {/* Floor level indicator */}
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: isActive ? f.color : 'var(--surface2)', border: `2px solid ${isActive ? f.color : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                  {f.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: isActive ? f.color : 'var(--text)' }}>{f.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text2)' }}>{f.sublabel}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  {f.rooms.length > 0 && <div style={{ fontSize: 11, color: 'var(--text3)' }}>{f.rooms.length} rooms · {totalSessions} sessions</div>}
+                  {floorAttendees.length > 0 && (
+                    <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end', marginTop: 3 }}>
+                      {floorAttendees.slice(0,4).map(n => (
+                        <span key={n} style={{ width: 18, height: 18, borderRadius: '50%', background: f.color, color: '#fff', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{n.charAt(0)}</span>
+                      ))}
+                      {floorAttendees.length > 4 && <span style={{ fontSize: 9, color: f.color }}>+{floorAttendees.length - 4}</span>}
+                    </div>
+                  )}
+                </div>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{isActive ? '▾' : '▸'}</span>
+              </div>
 
-          <rect x="40" y="336" width="740" height="210" rx="8" fill={c.bcBg} opacity="0.7" stroke={c.bcStroke} strokeWidth="1.5" />
-          <text x="410" y="356" textAnchor="middle" fill={c.bcText} fontSize="11" fontWeight="700" fontFamily="monospace">BASECAMP — Expo Floor (South Halls A–F)</text>
+              {/* Expanded floor plan */}
+              {isActive && (
+                <div style={{ padding: '12px 16px 16px', background: `${f.color}08`, borderBottom: idx < BUILDING_FLOORS.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  {f.note ? (
+                    <div style={{ padding: 16, textAlign: 'center', background: `${f.color}15`, borderRadius: 8, border: `1px dashed ${f.color}60` }}>
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>{f.icon}</div>
+                      <div style={{ fontSize: 13, color: f.color, fontWeight: 600 }}>{f.note}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>No individual room selection for keynotes</div>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Hallway visual */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                        <div style={{ height: 2, flex: 1, background: `${f.color}40`, borderRadius: 1 }} />
+                        <span style={{ fontSize: 9, color: f.color, fontWeight: 600, whiteSpace: 'nowrap' }}>MAIN CORRIDOR</span>
+                        <div style={{ height: 2, flex: 1, background: `${f.color}40`, borderRadius: 1 }} />
+                      </div>
 
-          {zoneData.map((z, i) => <Zone key={i} {...z} {...zonePos[i]} />)}
+                      {/* Zones (wings/halls) */}
+                      {f.zones?.map((zone, zi) => (
+                        <div key={zi} style={{ marginBottom: zi < f.zones.length - 1 ? 12 : 0 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: f.color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: f.color, flexShrink: 0 }} />
+                            {zone.label}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${isMobile ? '85px' : '100px'}, 1fr))`, gap: 7, paddingLeft: 14, borderLeft: `2px solid ${f.color}30` }}>
+                            {zone.rooms.map(room => <RoomCard key={room} room={room} color={f.color} />)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-          <rect x="310" y="522" width="200" height="20" rx="4" fill={c.regFill} stroke={c.s2stroke} strokeWidth="1" />
-          <text x="410" y="535" textAnchor="middle" fill={c.regText} fontSize="9" fontFamily="monospace">🎟 Registration — Howard St Entrance</text>
-
-          {c.legend.map(([col, lbl], i) => (
-            <g key={i}>
-              <rect x={50 + i * 180} y={508} width={10} height={10} rx="2" fill={col} />
-              <text x={65 + i * 180} y={517} fill={col} fontSize="8" fontFamily="monospace">{lbl}</text>
-            </g>
-          ))}
-        </svg>
+        {/* Ground marker */}
+        <div style={{ background: 'var(--surface2)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <span style={{ fontSize: 9, color: 'var(--text3)', fontWeight: 600 }}>🚪 STREET LEVEL — Howard St</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <select style={{ ...S.input, width: 'auto' }} value={filterRoom} onChange={e => setFilterRoom(e.target.value)}>
-          <option value="">Click a room above or select…</option>
-          {roomList.map(r => <option key={r} value={r}>{r} ({ALL_SESSIONS.filter(s => s.room_short === r).length} sessions)</option>)}
-        </select>
-      </div>
-
+      {/* Selected room sessions */}
       {filterRoom && (
         <div>
-          <h3 style={S.h3}>Sessions in {filterRoom} ({filteredSessions.length})</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <h3 style={{ ...S.h3, marginBottom: 0 }}>📍 {filterRoom}</h3>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>{filteredSessions.length} sessions</span>
+            <button style={{ ...S.btn('default'), fontSize: 11, padding: '3px 8px', marginLeft: 'auto' }} onClick={() => setFilterRoom('')}>✕ Clear</button>
+          </div>
           {(() => {
-            // Group by day + time slot for timeline layout
             const groups = {};
             for (const s of filteredSessions) {
               const key = `${s.day}||${s.time.split(' - ')[0]}`;
@@ -596,15 +657,13 @@ function RoomMap({ getAttendeesForSession, dark }) {
             }
             return Object.values(groups).map(({ label, day, sessions }) => (
               <div key={`${day}${label}`} style={{ display: 'flex', gap: 0, marginBottom: 24 }}>
-                {/* Timeline left column */}
-                <div style={{ width: 90, flexShrink: 0, paddingTop: 2, textAlign: 'right', paddingRight: 16, position: 'relative' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--time-text)', whiteSpace: 'nowrap' }}>{label}</span>
-                  <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>{day}</div>
+                <div style={{ width: isMobile ? 62 : 90, flexShrink: 0, paddingTop: 2, textAlign: 'right', paddingRight: isMobile ? 10 : 16, position: 'relative' }}>
+                  <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: 'var(--time-text)', whiteSpace: 'nowrap' }}>{label}</span>
+                  <div style={{ fontSize: 8, color: 'var(--text3)', marginTop: 2 }}>{day}</div>
                   <div style={{ position: 'absolute', right: 0, top: 0, bottom: -24, width: 2, background: 'var(--border)' }} />
-                  <div style={{ position: 'absolute', right: -5, top: 4, width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--bg)' }} />
+                  <div style={{ position: 'absolute', right: -5, top: 4, width: 10, height: 10, borderRadius: '50%', background: floor.color, border: '2px solid var(--bg)' }} />
                 </div>
-                {/* Cards */}
-                <div style={{ flex: 1, paddingLeft: 16 }}>
+                <div style={{ flex: 1, paddingLeft: isMobile ? 10 : 16, minWidth: 0 }}>
                   {sessions.map(s => (
                     <SessionCard key={s.code} session={s} myName={null} attendees={getAttendeesForSession(s.code)} onRegister={() => {}} onUnregister={() => {}} />
                   ))}
@@ -757,8 +816,9 @@ export default function App() {
 
       {/* Footer — desktop only */}
       {!isMobile && (
-        <div style={{ padding: '10px 24px', borderTop: '1px solid var(--footer-border)', fontSize: 10, color: 'var(--footer-text)', display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+        <div style={{ padding: '10px 24px', borderTop: '1px solid var(--footer-border)', fontSize: 10, color: 'var(--footer-text)', display: 'flex', justifyContent: 'space-between', gap: 4, alignItems: 'center' }}>
           <span>❄️ Snowflake Summit 26 · {ALL_SESSIONS.length} sessions · San Francisco, Jun 1–4 2026</span>
+          <span style={{ color: 'var(--text3)' }}>made by Anil Gosavi</span>
           <span style={{ color: isSupabaseReady() ? '#4ade80' : 'var(--badge-local-text)' }}>
             {isSupabaseReady() ? '🟢 Live sync' : '🟡 Local only'}
           </span>
