@@ -93,6 +93,11 @@ function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
             <span style={{ fontSize: 10, color: 'var(--text2)', fontFamily: 'monospace' }}>{session.code}</span>
             <span style={S.tag(session.track)}>{session.track}</span>
+            {attendees.length > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', border: '1px solid #86efac', padding: '1px 7px', borderRadius: 999 }}>
+                👥 {attendees.length} attending
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
           <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
