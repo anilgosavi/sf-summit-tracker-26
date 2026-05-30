@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(() => window.innerWidth < 768);
@@ -43,6 +43,14 @@ function parseTime(t) {
   return h * 60 + min;
 }
 function getStartMin(s) { return parseTime(s.time.split(' - ')[0]); }
+
+const DAY_DATES = { 'Mon, Jun 1': 1, 'Tue, Jun 2': 2, 'Wed, Jun 3': 3, 'Thu, Jun 4': 4 };
+function isSessionPast(s) {
+  const d = DAY_DATES[s.day];
+  if (!d) return false;
+  const end = getEndMin(s);
+  return new Date() > new Date(2026, 5, d, Math.floor(end / 60), end % 60);
+}
 
 function openMapsNav(room) {
   const dest = encodeURIComponent(`${room}, Moscone Center, 747 Howard St, San Francisco, CA`);
@@ -165,6 +173,7 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
   const [search, setSearch] = useState('');
   const [showMine, setShowMine] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  const [hidePast, setHidePast] = useState(true);
 
   const mySessionCodes = useMemo(() => {
     if (!myName || !registrations[myName]) return new Set();
@@ -187,12 +196,13 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
       }
       if (showMine && !mySessionCodes.has(s.code)) return false;
       if (showTeam && !allRegisteredCodes.has(s.code)) return false;
+      if (hidePast && isSessionPast(s)) return false;
       return true;
     }).sort((a, b) => {
       const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
       return di !== 0 ? di : getStartMin(a) - getStartMin(b);
     }),
-  [filterDay, filterTrack, search, showMine, showTeam, mySessionCodes, allRegisteredCodes]);
+  [filterDay, filterTrack, search, showMine, showTeam, hidePast, mySessionCodes, allRegisteredCodes]);
 
   const grouped = useMemo(() => {
     const g = {};
@@ -222,7 +232,14 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
           </button>
         )}
         <button style={S.btn(showTeam ? 'success' : 'default')} onClick={() => { setShowTeam(!showTeam); setShowMine(false); }}>
-          {showTeam ? '👥 Team Sessions' : '👥 Team Sessions'}
+          👥 Team Sessions
+        </button>
+        <button
+          style={{ ...S.btn(hidePast ? 'default' : 'primary'), padding: '6px 10px' }}
+          onClick={() => setHidePast(!hidePast)}
+          title={hidePast ? 'Past sessions hidden — click to show' : 'Showing all sessions — click to hide past'}
+        >
+          <span style={{ display: 'inline-block', transform: 'scaleX(-1)', fontSize: 14 }}>🕐</span>
         </button>
         <span style={{ fontSize: 11, color: 'var(--text2)', marginLeft: 'auto' }}>{filtered.length} sessions</span>
       </div>
@@ -260,13 +277,14 @@ function ScheduleView({ myName, onRegister, onUnregister, getAttendeesForSession
 // ── My Plan ───────────────────────────────────────────────────────────────────
 function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegister, onUnregister, isMobile }) {
   const [selectedDay, setSelectedDay] = useState(DAYS[0]);
+  const [hidePast, setHidePast] = useState(true);
 
   const myCodes = useMemo(() => new Set(getSessionsForPerson(name)), [name, getSessionsForPerson]);
 
   const byDay = useMemo(() => {
     const g = {};
     for (const d of DAYS) {
-      g[d] = ALL_SESSIONS.filter(s => myCodes.has(s.code) && s.day === d).sort((a, b) => getStartMin(a) - getStartMin(b));
+      g[d] = ALL_SESSIONS.filter(s => myCodes.has(s.code) && s.day === d && (!hidePast || !isSessionPast(s))).sort((a, b) => getStartMin(a) - getStartMin(b));
     }
     return g;
   }, [myCodes]);
@@ -296,7 +314,12 @@ function MyPlanView({ name, getSessionsForPerson, getAttendeesForSession, onRegi
 
   return (
     <div>
-      <h2 style={S.h2}>📅 {name}'s Plan — {Object.values(byDay).flat().length} sessions total</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+        <h2 style={{ ...S.h2, margin: 0, border: 'none', padding: 0 }}>📅 {name}'s Plan — {Object.values(byDay).flat().length} sessions</h2>
+        <button style={{ ...S.btn(hidePast ? 'default' : 'primary'), padding: '6px 10px' }} onClick={() => setHidePast(!hidePast)} title={hidePast ? 'Past sessions hidden — click to show' : 'Showing all — click to hide past'}>
+          <span style={{ display: 'inline-block', transform: 'scaleX(-1)', fontSize: 14 }}>🕐</span>
+        </button>
+      </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
         {DAYS.map(d => <button key={d} style={S.navBtn(selectedDay === d)} onClick={() => setSelectedDay(d)}>{d} ({byDay[d]?.length || 0})</button>)}
       </div>
@@ -491,6 +514,7 @@ const BUILDING_FLOORS = [
 function RoomMap({ getAttendeesForSession, dark, isMobile }) {
   const [activeFloor, setActiveFloor] = useState('l2');
   const [filterRoom, setFilterRoom] = useState('');
+  const [hidePast, setHidePast] = useState(true);
 
   const roomAttendees = useMemo(() => {
     const m = {};
@@ -514,12 +538,12 @@ function RoomMap({ getAttendeesForSession, dark, isMobile }) {
 
   const filteredSessions = useMemo(() => {
     if (!filterRoom) return [];
-    return ALL_SESSIONS.filter(s => s.room_short === filterRoom)
+    return ALL_SESSIONS.filter(s => s.room_short === filterRoom && (!hidePast || !isSessionPast(s)))
       .sort((a, b) => {
         const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
         return di !== 0 ? di : getStartMin(a) - getStartMin(b);
       });
-  }, [filterRoom]);
+  }, [filterRoom, hidePast]);
 
   const floor = BUILDING_FLOORS.find(f => f.id === activeFloor);
 
@@ -660,9 +684,12 @@ function RoomMap({ getAttendeesForSession, dark, isMobile }) {
       {/* Selected room sessions */}
       {filterRoom && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             <h3 style={{ ...S.h3, marginBottom: 0 }}>📍 {filterRoom}</h3>
             <span style={{ fontSize: 11, color: 'var(--text3)' }}>{filteredSessions.length} sessions</span>
+            <button style={{ ...S.btn(hidePast ? 'default' : 'primary'), padding: '4px 8px' }} onClick={() => setHidePast(!hidePast)} title={hidePast ? 'Past hidden — click to show' : 'Showing all — click to hide past'}>
+              <span style={{ display: 'inline-block', transform: 'scaleX(-1)', fontSize: 13 }}>🕐</span>
+            </button>
             <button style={{ ...S.btn('default'), fontSize: 11, padding: '3px 8px', marginLeft: 'auto' }} onClick={() => setFilterRoom('')}>✕ Clear</button>
           </div>
           {(() => {
@@ -768,8 +795,14 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
   });
   const [myLoc, setMyLoc] = useState(() => localStorage.getItem('sf_my_loc') || '');
   const [now, setNow] = useState(new Date());
+  const indoorNavRef = useRef(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 10000); return () => clearInterval(t); }, []);
+
+  const navigateTo = (room) => {
+    setDestRoom(room);
+    setTimeout(() => indoorNavRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  };
 
   // GPS
   const requestGps = () => {
@@ -794,20 +827,19 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
     ? `http://maps.apple.com/?saddr=${gps.lat},${gps.lng}&daddr=${MOSCONE.lat},${MOSCONE.lng}&dirflg=w`
     : `http://maps.apple.com/?q=${encodeURIComponent(MOSCONE.address)}`;
 
-  // Next session
+  // Next session — find the very next upcoming session across all summit days
   const myCodes = new Set(getSessionsForPerson(myName));
   const mySessions = ALL_SESSIONS.filter(s => myCodes.has(s.code)).sort((a,b) => {
     const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
     return di !== 0 ? di : getStartMin(a) - getStartMin(b);
   });
-  const todayDayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getDay()];
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const nextSession = mySessions.find(s => {
-    const dayMatch = s.day.startsWith(todayDayName);
-    return dayMatch && getStartMin(s) > nowMin;
-  }) || mySessions.find(s => DAYS.indexOf(s.day) > DAYS.indexOf(DAYS.find(d => d.startsWith(todayDayName)) || DAYS[0]));
-
-  const nextMinsUntil = nextSession ? Math.max(0, getStartMin(nextSession) - nowMin) : null;
+  // Find first session that hasn't ended yet (across all summit days)
+  const nextSession = mySessions.find(s => !isSessionPast(s));
+  // Is it today?
+  const todayDayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][now.getDay()];
+  const isToday = nextSession?.day.startsWith(todayDayName);
+  const nextMinsUntil = (isToday && nextSession) ? Math.max(0, getStartMin(nextSession) - nowMin) : null;
 
   // Team locations
   const broadcastLocation = (room) => {
@@ -832,7 +864,7 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
   const destFloor = destRoom ? getFloorForRoom(destRoom) : null;
 
   const allRooms = Object.values(FLOOR_ROOMS).flat();
-  const Card = ({ children, style }) => <div style={{ ...S.card, padding: 16, marginBottom: 12, ...style }}>{children}</div>;
+  const Card = ({ children, style, cardRef }) => <div ref={cardRef} style={{ ...S.card, padding: 16, marginBottom: 12, scrollMarginTop: 80, ...style }}>{children}</div>;
   const SectionTitle = ({ icon, title }) => <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, display:'flex', gap:6, alignItems:'center'}}><span>{icon}</span>{title}</div>;
 
   return (
@@ -854,14 +886,19 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
               </span>
             )}
           </div>
-          <button style={{ ...S.btn('primary'), fontSize: 12 }} onClick={() => setDestRoom(nextSession.room_short)}>
+          <button style={{ ...S.btn('primary'), fontSize: 12 }} onClick={() => navigateTo(nextSession.room_short)}>
             🧭 Navigate there →
           </button>
         </Card>
       )}
-      {myName && !nextSession && (
+      {myName && !nextSession && mySessions.length === 0 && (
         <Card style={{ background: 'var(--surface2)' }}>
-          <p style={{ color:'var(--text2)', fontSize:13, margin:0 }}>No upcoming sessions today. Check your plan to add some!</p>
+          <p style={{ color:'var(--text2)', fontSize:13, margin:0 }}>No sessions in your plan yet — go to Schedule and join some!</p>
+        </Card>
+      )}
+      {myName && !nextSession && mySessions.length > 0 && (
+        <Card style={{ background: 'var(--surface2)' }}>
+          <p style={{ color:'var(--text2)', fontSize:13, margin:0 }}>✅ All your sessions are done — great summit!</p>
         </Card>
       )}
 
@@ -917,7 +954,7 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
       </Card>
 
       {/* Indoor Navigation */}
-      <Card>
+      <Card cardRef={indoorNavRef}>
         <SectionTitle icon="🏢" title="Indoor Navigation" />
         <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:8, marginBottom:14 }}>
           <div>
@@ -1020,7 +1057,7 @@ function NavigateView({ myName, getSessionsForPerson, knownNames, isMobile }) {
                 </div>
                 <div style={{ fontSize:10, color:'var(--text3)' }}>{minsAgo < 2 ? 'just now' : `${minsAgo}m ago`}</div>
                 {!isStale && (
-                  <button onClick={() => setDestRoom(room)} style={{ ...S.btn('default'), fontSize:10, padding:'3px 7px' }}>→ Nav</button>
+                  <button onClick={() => navigateTo(room)} style={{ ...S.btn('default'), fontSize:10, padding:'3px 7px' }}>→ Nav</button>
                 )}
               </div>
             );
