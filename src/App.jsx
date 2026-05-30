@@ -578,21 +578,32 @@ function RoomMap({ getAttendeesForSession, dark }) {
       {filterRoom && (
         <div>
           <h3 style={S.h3}>Sessions in {filterRoom} ({filteredSessions.length})</h3>
-          {filteredSessions.map(s => (
-            <div key={s.code} style={{ ...S.card, borderLeft: `3px solid ${COLORS[s.track] || '#64748b'}` }}>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-                <span style={S.tag(s.track)}>{s.track}</span>
-                <span style={{ fontSize: 10, color: 'var(--text2)' }}>{s.day}</span>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{s.title}</div>
-              <div style={{ fontSize: 11, color: 'var(--text2)' }}>⏰ {s.time}</div>
-              {getAttendeesForSession(s.code).length > 0 && (
-                <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {getAttendeesForSession(s.code).map(n => <span key={n} style={S.pill}>{n}</span>)}
+          {(() => {
+            // Group by day + time slot for timeline layout
+            const groups = {};
+            for (const s of filteredSessions) {
+              const key = `${s.day}||${s.time.split(' - ')[0]}`;
+              if (!groups[key]) groups[key] = { label: s.time.split(' - ')[0], day: s.day, sessions: [] };
+              groups[key].sessions.push(s);
+            }
+            return Object.values(groups).map(({ label, day, sessions }) => (
+              <div key={`${day}${label}`} style={{ display: 'flex', gap: 0, marginBottom: 24 }}>
+                {/* Timeline left column */}
+                <div style={{ width: 90, flexShrink: 0, paddingTop: 2, textAlign: 'right', paddingRight: 16, position: 'relative' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--time-text)', whiteSpace: 'nowrap' }}>{label}</span>
+                  <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>{day}</div>
+                  <div style={{ position: 'absolute', right: 0, top: 0, bottom: -24, width: 2, background: 'var(--border)' }} />
+                  <div style={{ position: 'absolute', right: -5, top: 4, width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--bg)' }} />
                 </div>
-              )}
-            </div>
-          ))}
+                {/* Cards */}
+                <div style={{ flex: 1, paddingLeft: 16 }}>
+                  {sessions.map(s => (
+                    <SessionCard key={s.code} session={s} myName={null} attendees={getAttendeesForSession(s.code)} onRegister={() => {}} onUnregister={() => {}} />
+                  ))}
+                </div>
+              </div>
+            ));
+          })()}
         </div>
       )}
     </div>
