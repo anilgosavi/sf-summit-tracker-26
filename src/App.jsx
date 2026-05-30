@@ -43,6 +43,15 @@ function parseTime(t) {
   return h * 60 + min;
 }
 function getStartMin(s) { return parseTime(s.time.split(' - ')[0]); }
+
+function openMapsNav(room) {
+  const dest = encodeURIComponent(`${room}, Moscone Center, 747 Howard St, San Francisco, CA`);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+  const url = isIOS
+    ? `https://maps.apple.com/?daddr=${dest}&dirflg=w`
+    : `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking`;
+  window.open(url, '_blank');
+}
 function getEndMin(s) { return parseTime((s.time.split(' - ')[1] || '').replace(' PDT', '')); }
 function overlaps(a, b) { return getStartMin(a) < getEndMin(b) && getEndMin(a) > getStartMin(b); }
 
@@ -113,9 +122,17 @@ function SessionCard({ session, myName, attendees, onRegister, onUnregister }) {
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>{session.title}</div>
             <div style={{ fontSize: 11, color: 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <span>⏰ {session.time}</span>
-                {session.room_short && <span>📍 {session.room_short}</span>}
+                {session.room_short && (
+                  <span
+                    onClick={e => { e.stopPropagation(); openMapsNav(session.room_short); }}
+                    title={`Directions to ${session.room_short}`}
+                    style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--accent)', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 }}
+                  >
+                    📍 {session.room_short}
+                  </span>
+                )}
               </div>
               {attendees.length > 0 && (
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
